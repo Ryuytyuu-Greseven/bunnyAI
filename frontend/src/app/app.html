@@ -1,0 +1,118 @@
+<div class="background-glows">
+  <div class="glow-1"></div>
+  <div class="glow-2"></div>
+</div>
+
+<main class="app-container">
+  <header class="app-header">
+    <div class="logo-area">
+      <div class="pulse-ring"></div>
+      <span class="logo-dot"></span>
+      <h1>AETHER</h1>
+    </div>
+    <p class="tagline">Multimodal Real-Time AI Voice Assistant</p>
+  </header>
+
+  <div class="dashboard-grid">
+    <!-- Left Config Column -->
+    <form [formGroup]="configForm" class="card config-card">
+      <h2 class="card-title">Session Configuration</h2>
+      
+      <div class="input-group">
+        <label for="model-select">Live Model</label>
+        <select id="model-select" formControlName="model">
+          <option value="models/gemini-2.0-flash-exp">Gemini 2.0 Flash Live (Experimental)</option>
+          <option value="models/gemini-2.5-flash-live-preview">Gemini 2.5 Flash Live (Preview)</option>
+          <option value="models/gemini-3.1-flash-live-preview">Gemini 3.1 Flash Live (Preview)</option>
+        </select>
+      </div>
+
+      <div class="input-group">
+        <label for="voice-select">Voice Persona</label>
+        <select id="voice-select" formControlName="voice">
+          <option value="Puck">Puck (Energetic Male)</option>
+          <option value="Charon">Charon (Calm Male)</option>
+          <option value="Kore">Kore (Friendly Female)</option>
+          <option value="Fenrir">Fenrir (Deep Male)</option>
+          <option value="Aoede">Aoede (Expressive Female)</option>
+        </select>
+      </div>
+
+      <div class="input-group">
+        <label for="system-instruction">System Instruction / Persona</label>
+        <textarea id="system-instruction" formControlName="systemInstruction" placeholder="Define the AI's behavior, role, or background..."></textarea>
+      </div>
+
+      <div class="button-row">
+        <button id="connect-btn" class="btn btn-primary" [disabled]="isConnected || isConnecting" (click)="connect()">
+          <span class="btn-icon">⚡</span> Connect
+        </button>
+        <button id="disconnect-btn" class="btn btn-danger" [disabled]="!isConnected" (click)="disconnect()">
+          <span class="btn-icon">✖</span> Disconnect
+        </button>
+      </div>
+
+      <div class="status-indicator-bar">
+        <span class="status-label">Status:</span>
+        <span id="status-text" class="status-indicator" [ngClass]="statusClass">{{ statusText }}</span>
+      </div>
+    </form>
+
+    <!-- Right Visualizer & Output Column -->
+    <section class="visualizer-container">
+      <div class="card visualizer-card">
+        <h2 class="card-title">Voice Visualizer</h2>
+        
+        <div class="waveforms-grid">
+          <!-- User Microphone Waveform -->
+          <div class="waveform-block">
+            <div class="waveform-header">
+              <span class="mic-icon">🎤</span>
+              <h3>Your Voice (Input)</h3>
+            </div>
+            <div class="canvas-container">
+              <canvas #micCanvas></canvas>
+              <div class="idle-text" [style.opacity]="isMicIdle ? '1' : '0'">{{ isMuted ? 'Microphone Muted' : 'Microphone Idle' }}</div>
+            </div>
+          </div>
+
+          <!-- Assistant Waveform -->
+          <div class="waveform-block">
+            <div class="waveform-header">
+              <span class="speaker-icon">🔊</span>
+              <h3>Aether's Voice (Output)</h3>
+            </div>
+            <div class="canvas-container">
+              <canvas #speakerCanvas></canvas>
+              <div class="idle-text" [style.opacity]="isSpeakerIdle ? '1' : '0'">Aether Silent</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="visualizer-controls">
+          <button id="mute-btn" class="btn btn-secondary" [disabled]="!isConnected" (click)="toggleMute()">
+            <span id="mute-icon">{{ isMuted ? '🔇' : '🎤' }}</span> 
+            <span id="mute-text">{{ isMuted ? 'Unmute Mic' : 'Mute Mic' }}</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- System Terminal Console Logs -->
+      <div class="card console-card">
+        <div class="console-header">
+          <h2 class="card-title console-title">System Logs</h2>
+          <button id="clear-logs-btn" class="btn-text" (click)="clearLogs()">Clear</button>
+        </div>
+        <div class="console-body" #consoleLogs>
+          @for (log of logs; track log.id) {
+            <div class="log-entry" [ngClass]="log.typeClass">[{{ log.time }}] {{ log.message }}</div>
+          }
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<footer class="app-footer">
+  <p>Powered by Gemini Multimodal Live API & NestJS WebSockets</p>
+</footer>
