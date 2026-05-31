@@ -1,4 +1,4 @@
-import { Component, ElementRef, ViewChild, HostListener, AfterViewInit, OnDestroy } from '@angular/core';
+import { Component, ElementRef, ViewChild, HostListener, AfterViewInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { FormGroup, FormControl, ReactiveFormsModule } from '@angular/forms';
 
@@ -7,6 +7,13 @@ interface ConsoleLog {
   time: string;
   message: string;
   typeClass: string;
+}
+
+interface ChatMessage {
+  id: number;
+  sender: 'user' | 'assistant';
+  text: string;
+  time: string;
 }
 
 @Component({
@@ -24,6 +31,8 @@ export class App implements AfterViewInit, OnDestroy {
     systemInstruction: new FormControl("You are Aether, a brilliant, friendly, and helpful real-time AI assistant. Respond conversationally, keep your responses concise, and adapt dynamically to the user's tone."),
   });
 
+  constructor(private cdr: ChangeDetectorRef) {}
+
   // UI states
   isConnected = false;
   isConnecting = false;
@@ -33,13 +42,16 @@ export class App implements AfterViewInit, OnDestroy {
   statusText = 'Disconnected';
   statusClass = 'status-offline';
   logs: ConsoleLog[] = [];
+  chatMessages: ChatMessage[] = [];
 
   private logId = 0;
+  private chatMessageId = 0;
 
-  // Visualizer Canvases & Logs container
+  // Visualizer Canvases, Logs container & Chat container
   @ViewChild('micCanvas') micCanvasRef!: ElementRef<HTMLCanvasElement>;
   @ViewChild('speakerCanvas') speakerCanvasRef!: ElementRef<HTMLCanvasElement>;
   @ViewChild('consoleLogs') consoleLogsRef!: ElementRef<HTMLDivElement>;
+  @ViewChild('chatHistoryBody') chatHistoryBodyRef!: ElementRef<HTMLDivElement>;
 
   // Web Audio Contexts & Streams
   private inputAudioContext: AudioContext | null = null;
@@ -113,7 +125,26 @@ export class App implements AfterViewInit, OnDestroy {
 
   clearLogs() {
     this.logs = [];
-    this.log('Logs cleared.', 'info');
+    this.chatMessages = [];
+    this.log('Logs and chat history cleared.', 'info');
+  }
+
+  addChatMessage(sender: 'user' | 'assistant', text: string) {
+    const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    this.chatMessages.push({
+      id: ++this.chatMessageId,
+      sender,
+      text,
+      time: timestamp,
+    });
+
+    // Auto-scroll chat body to the bottom
+    setTimeout(() => {
+      if (this.chatHistoryBodyRef?.nativeElement) {
+        const container = this.chatHistoryBodyRef.nativeElement;
+        container.scrollTop = container.scrollHeight;
+      }
+    }, 50);
   }
 
   // Establish real-time session
@@ -140,6 +171,7 @@ export class App implements AfterViewInit, OnDestroy {
         this.updateStatus('online', 'Connected');
         this.isConnected = true;
         this.isConnecting = false;
+        this.cdr.detectChanges();
 
         // 1. Send configuration message to set model/voice
         const setupMsg = {
@@ -174,6 +206,7 @@ export class App implements AfterViewInit, OnDestroy {
         await this.initAudioOutput();
 
         this.log('Real-time voice stream initialized. You can start speaking now!', 'success');
+        this.cdr.detectChanges();
       };
 
       this.socket.onmessage = async (event) => {
@@ -182,7 +215,14 @@ export class App implements AfterViewInit, OnDestroy {
 
           if (message.error) {
             this.log(`Server Error: ${message.error}`, 'error');
+            this.cdr.detectChanges();
             return;
+          }
+
+          // Handle User's transcribed query from the backend
+          if (message.userContent && message.userContent.text) {
+            this.addChatMessage('user', message.userContent.text);
+            this.cdr.detectChanges();
           }
 
           if (message.serverContent) {
@@ -192,6 +232,7 @@ export class App implements AfterViewInit, OnDestroy {
             if (content.interrupted) {
               this.log('User interrupted assistant. Silencing audio queue immediately.', 'warning');
               this.stopPlaybackQueue();
+              this.cdr.detectChanges();
               return;
             }
 
@@ -203,8 +244,10 @@ export class App implements AfterViewInit, OnDestroy {
                 }
                 if (part.text) {
                   this.log(`Assistant text transcript: "${part.text}"`, 'info');
+                  this.addChatMessage('assistant', part.text);
                 }
               }
+              this.cdr.detectChanges();
             }
           }
         } catch (err) {
@@ -215,16 +258,19 @@ export class App implements AfterViewInit, OnDestroy {
       this.socket.onclose = () => {
         this.log('WebSocket connection closed.', 'warning');
         this.cleanup();
+        this.cdr.detectChanges();
       };
 
       this.socket.onerror = (err) => {
         this.log('WebSocket error occurred.', 'error');
         console.error(err);
+        this.cdr.detectChanges();
       };
 
     } catch (err: any) {
       this.log(`Connection failed: ${err.message}`, 'error');
       this.cleanup();
+      this.cdr.detectChanges();
     }
   }
 
@@ -237,6 +283,14 @@ export class App implements AfterViewInit, OnDestroy {
 
   toggleMute() {
     this.isMuted = !this.isMuted;
+    
+    // Disable/enable actual audio tracks at the stream source so the visualizer flatlines
+    if (this.micStream) {
+      this.micStream.getAudioTracks().forEach((track) => {
+        track.enabled = !this.isMuted;
+      });
+    }
+
     if (this.isMuted) {
       this.log('Microphone muted.', 'warning');
       this.isMicIdle = true;
@@ -315,7 +369,7 @@ export class App implements AfterViewInit, OnDestroy {
 
   // Initialize Speaker Output (24kHz playback context)
   private async initAudioOutput() {
-    this.outputAudioContext = new AudioContext({ sampleRate: 24000 });
+    this.outputAudioContext = new AudioContext();
 
     this.playbackAnalyser = this.outputAudioContext.createAnalyser();
     this.playbackAnalyser.fftSize = 256;
@@ -323,46 +377,83 @@ export class App implements AfterViewInit, OnDestroy {
 
     this.nextPlayTime = this.outputAudioContext.currentTime;
 
-    this.log('Speaker output initialized (24kHz mono).', 'info');
+    this.log('Speaker output initialized.', 'info');
 
     // Render waveform animation loop
     this.startDrawing(this.playbackAnalyser, this.speakerCanvasRef.nativeElement, '#06b6d4', () => this.isSpeakerIdle);
   }
 
-  // play PCM base64 payload
+  // play audio payload (supports MP3/WAV/PCM)
   private playAudioChunk(base64Data: string) {
-    if (!this.outputAudioContext || this.outputAudioContext.state === 'suspended') {
+    if (!this.outputAudioContext) {
       return;
     }
 
-    const arrayBuffer = this.base64ToArrayBuffer(base64Data);
-    const int16Array = new Int16Array(arrayBuffer);
-    const float32Array = new Float32Array(int16Array.length);
-
-    for (let i = 0; i < int16Array.length; i++) {
-      float32Array[i] = int16Array[i] / 32768.0;
+    if (this.outputAudioContext.state === 'suspended') {
+      this.outputAudioContext.resume();
     }
 
-    const buffer = this.outputAudioContext.createBuffer(1, float32Array.length, 24000);
-    buffer.copyToChannel(float32Array, 0);
+    const arrayBuffer = this.base64ToArrayBuffer(base64Data);
+    // Keep a backup of the arrayBuffer bytes in case decodeAudioData fails and detaches the original buffer
+    const fallbackBuffer = arrayBuffer.slice(0);
 
-    const source = this.outputAudioContext.createBufferSource();
-    source.buffer = buffer;
-    source.connect(this.playbackAnalyser!);
+    this.outputAudioContext.decodeAudioData(arrayBuffer)
+      .then((buffer) => {
+        if (!this.outputAudioContext) return;
+        const source = this.outputAudioContext.createBufferSource();
+        source.buffer = buffer;
+        source.connect(this.playbackAnalyser!);
 
-    const startTime = Math.max(this.outputAudioContext.currentTime, this.nextPlayTime);
-    source.start(startTime);
-    this.nextPlayTime = startTime + buffer.duration;
+        const startTime = Math.max(this.outputAudioContext.currentTime, this.nextPlayTime);
+        source.start(startTime);
+        this.nextPlayTime = startTime + buffer.duration;
 
-    this.activeSources.add(source);
-    source.onended = () => {
-      this.activeSources.delete(source);
-      if (this.activeSources.size === 0) {
-        this.isSpeakerIdle = true;
-      }
-    };
+        this.activeSources.add(source);
+        source.onended = () => {
+          this.activeSources.delete(source);
+          if (this.activeSources.size === 0) {
+            this.isSpeakerIdle = true;
+          }
+        };
 
-    this.isSpeakerIdle = false;
+        this.isSpeakerIdle = false;
+      })
+      .catch((err) => {
+        console.warn('Failed to decode using decodeAudioData, attempting fallback as raw PCM...', err);
+        // Fallback to raw PCM 24kHz just in case
+        try {
+          if (!this.outputAudioContext) return;
+          const int16Array = new Int16Array(fallbackBuffer);
+          const float32Array = new Float32Array(int16Array.length);
+
+          for (let i = 0; i < int16Array.length; i++) {
+            float32Array[i] = int16Array[i] / 32768.0;
+          }
+
+          const buffer = this.outputAudioContext.createBuffer(1, float32Array.length, 24000);
+          buffer.copyToChannel(float32Array, 0);
+
+          const source = this.outputAudioContext.createBufferSource();
+          source.buffer = buffer;
+          source.connect(this.playbackAnalyser!);
+
+          const startTime = Math.max(this.outputAudioContext.currentTime, this.nextPlayTime);
+          source.start(startTime);
+          this.nextPlayTime = startTime + buffer.duration;
+
+          this.activeSources.add(source);
+          source.onended = () => {
+            this.activeSources.delete(source);
+            if (this.activeSources.size === 0) {
+              this.isSpeakerIdle = true;
+            }
+          };
+
+          this.isSpeakerIdle = false;
+        } catch (fallbackErr) {
+          console.error('Audio playback fallback failed:', fallbackErr);
+        }
+      });
   }
 
   private stopPlaybackQueue() {
@@ -419,6 +510,8 @@ export class App implements AfterViewInit, OnDestroy {
     this.isMuted = false;
     this.isMicIdle = true;
     this.isSpeakerIdle = true;
+    this.chatMessages = [];
+    this.cdr.detectChanges();
   }
 
   // Base64 helpers

@@ -97,6 +97,32 @@
         </div>
       </div>
 
+      <!-- Live Conversation Transcript Card -->
+      <div class="card chat-card">
+        <h2 class="card-title">Live Conversation Transcript</h2>
+        <div class="chat-body" #chatHistoryBody>
+          @if (chatMessages.length === 0) {
+            <div class="chat-placeholder">
+              <span class="chat-placeholder-icon">💬</span>
+              <p>No conversation yet. Connect and start speaking to see the live transcript!</p>
+            </div>
+          }
+          
+          @for (msg of chatMessages; track msg.id) {
+            <div class="chat-message" [ngClass]="{'msg-user': msg.sender === 'user', 'msg-assistant': msg.sender === 'assistant'}">
+              <div class="message-bubble">
+                <div class="message-sender">
+                  <span class="sender-avatar">{{ msg.sender === 'user' ? '👤' : '🤖' }}</span>
+                  <span class="sender-name">{{ msg.sender === 'user' ? 'You' : 'Aether' }}</span>
+                </div>
+                <p class="message-text">{{ msg.text }}</p>
+                <span class="message-time">{{ msg.time }}</span>
+              </div>
+            </div>
+          }
+        </div>
+      </div>
+
       <!-- System Terminal Console Logs -->
       <div class="card console-card">
         <div class="console-header">
