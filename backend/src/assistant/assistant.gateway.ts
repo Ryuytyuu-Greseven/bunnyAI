@@ -7,6 +7,8 @@ import { ConfigService } from '@nestjs/config';
 import WebSocket from 'ws';
 // import * as googleTTS from 'google-tts-api';
 import { GoogleGenAI } from '@google/genai';
+import * as fs from 'fs';
+import * as path from 'path';
 
 interface UserConfig {
   model: string;
@@ -20,6 +22,11 @@ interface SessionState {
   silenceStartTimestamp: number;
   audioChunks: Buffer[];
   isGenerating: boolean;
+  accumulatedTranscript: string;
+  lastSegmentHadSpeech: boolean;
+  isTranscribing: boolean;
+  segmentIndex: number;
+  queryQueue: string[];
 }
 
 @WebSocketGateway({ path: '/ws' })
@@ -36,9 +43,11 @@ export class AssistantGateway
     console.log('Client connected to WebSocket Gateway');
 
     const apiKey = this.configService.get<string>('GEMINI_API_KEY');
-    this.genAi = new GoogleGenAI({ apiKey });
+    this.genAi = new GoogleGenAI({
+      vertexai: true, apiKey,
+    });
 
-    if (!apiKey || apiKey === 'YOUR_GEMINI_API_KEY_HERE') {
+    if (!apiKey || apiKey === 'YOUR_GEMINI_HERE') {
       console.error('Error: Gemini API Key is not configured on the server.');
       client.send(
         JSON.stringify({
@@ -52,7 +61,7 @@ export class AssistantGateway
     // Initialize state for this connection
     this.sessions.set(client, {
       config: {
-        model: 'models/gemini-2.0-flash-exp',
+        model: 'models/gemini-3.1-flash-lite',
         voice: 'Aoede',
         systemInstruction: "You are Aether, a brilliant, friendly, and helpful real-time AI assistant.",
       },
@@ -60,6 +69,11 @@ export class AssistantGateway
       silenceStartTimestamp: 0,
       audioChunks: [],
       isGenerating: false,
+      accumulatedTranscript: '',
+      lastSegmentHadSpeech: false,
+      isTranscribing: false,
+      segmentIndex: 0,
+      queryQueue: [],
     });
 
     // Listen to messages from the browser client
@@ -72,7 +86,7 @@ export class AssistantGateway
         if (msg.setup) {
           const session = this.sessions.get(client);
           if (session) {
-            session.config.model = msg.setup.model || 'models/gemini-2.0-flash-exp';
+            session.config.model = msg.setup.model || 'models/gemini-3.1-flash-lite';
             session.config.systemInstruction = msg.setup.systemInstruction?.parts?.[0]?.text || '';
             session.config.voice = msg.setup.generationConfig?.speechConfig?.voiceConfig?.prebuiltVoiceConfig?.voiceName || 'Aoede';
             console.log('Session setup updated:', session.config);
@@ -88,58 +102,11 @@ export class AssistantGateway
           const base64Audio = msg.realtimeInput.audio.data;
           const chunkBuffer = Buffer.from(base64Audio, 'base64');
 
-          // Check for active speech signal in this chunk
-          const hasSpeech = this.detectSpeech(chunkBuffer);
+          // Always accumulate audio chunks while not generating
+          session.audioChunks.push(chunkBuffer);
 
-          if (hasSpeech) {
-            // Barge-in (Interruption) Check:
-            // If the user starts speaking while the assistant is generating/speaking,
-            // we interrupt the assistant immediately.
-            if (session.isGenerating) {
-              console.log('Barge-in detected! Interrupting current generation...');
-              // session.isGenerating = false;
-              session.audioChunks = [];
-              session.speechStarted = false;
-              session.silenceStartTimestamp = 0;
-              client.send(JSON.stringify({ serverContent: { interrupted: true } }));
-              return;
-            }
-
-            if (!session.speechStarted) {
-              console.log('Speech detected: user started speaking...', session);
-              session.speechStarted = true;
-            }
-            session.silenceStartTimestamp = 0;
-          } else {
-            // No speech signal in this chunk
-            if (session.speechStarted) {
-              if (session.silenceStartTimestamp === 0) {
-                session.silenceStartTimestamp = Date.now();
-              } else if (Date.now() - session.silenceStartTimestamp > 1200) {
-                // User stopped speaking (silence for > 1.2 seconds)
-                console.log('Speech ended (silence timeout). Processing query...');
-                session.speechStarted = false;
-                session.silenceStartTimestamp = 0;
-
-                // Process the query asynchronously
-                this.processQuery(client, session);
-              }
-            }
-          }
-
-          // Accumulate audio chunks while speaking
-          if (session.speechStarted) {
-            session.audioChunks.push(chunkBuffer);
-
-            // Safety limit: if recorded audio exceeds 15 seconds, trigger processing automatically
-            const currentSize = session.audioChunks.reduce((acc, chunk) => acc + chunk.length, 0);
-            if (currentSize > 16000 * 2 * 15) {
-              console.log('Safety limit reached (15 seconds of speech). Processing query...');
-              session.speechStarted = false;
-              session.silenceStartTimestamp = 0;
-              this.processQuery(client, session);
-            }
-          }
+          // Try to process periodic segments
+          this.checkAndProcessSegments(client, session);
         }
       } catch (err) {
         console.error('Error handling client message:', err);
@@ -156,23 +123,85 @@ export class AssistantGateway
     this.sessions.delete(client);
   }
 
-  // --- Helpers for Audio and Gemini Processing ---
+  private async checkAndProcessSegments(client: any, session: SessionState) {
 
-  private detectSpeech(buf: Buffer): boolean {
-    const samplesCount = buf.length / 2;
-    if (samplesCount === 0) return false;
-
-    let sumSquares = 0;
-    for (let i = 0; i < samplesCount; i++) {
-      if (i * 2 + 1 >= buf.length) break;
-      const sample = buf.readInt16LE(i * 2);
-      sumSquares += sample * sample;
+    const totalSize = session.audioChunks.reduce((acc, chunk) => acc + chunk.length, 0);
+    if (totalSize < 160000) {
+      return;
     }
 
-    const rms = Math.sqrt(sumSquares / samplesCount);
-    // An RMS value of > 400 represents human speech, whereas line noise/hum is typically < 150.
-    return rms > 400;
+    session.isTranscribing = true;
+
+    try {
+      const concatenated = Buffer.concat(session.audioChunks);
+      const segment = concatenated.subarray(0, 160000);
+      const remainder = concatenated.subarray(160000);
+
+      session.audioChunks = remainder.length > 0 ? [remainder] : [];
+
+      // Convert segment to WAV format
+      const wavBuffer = this.pcmToWav(segment, 16000);
+
+      // Save segment audio to a WAV file in recordings directory
+      const recordingsDir = path.join(process.cwd(), 'recordings');
+      if (!fs.existsSync(recordingsDir)) {
+        fs.mkdirSync(recordingsDir, { recursive: true });
+      }
+      const currentIdx = session.segmentIndex;
+      session.segmentIndex = currentIdx + 1;
+      // const filename = `segment_${Date.now()}_idx${currentIdx}.wav`;
+      // const filePath = path.join(recordingsDir, filename);
+      // await fs.promises.writeFile(filePath, wavBuffer);
+      // console.log(`Saved segment audio to: ${filePath}`);
+
+      // Transcribe using Speech-to-Text
+      const transcript = await this.transcribeAudio(wavBuffer, session.config.model);
+      const cleaned = transcript.trim();
+
+      if (cleaned.length > 0) {
+        console.log(`Segment transcription: "${cleaned}"`);
+        session.accumulatedTranscript = session.accumulatedTranscript
+          ? session.accumulatedTranscript + ' ' + cleaned
+          : cleaned;
+
+        // Send to client
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(
+            JSON.stringify({
+              userContent: {
+                text: cleaned,
+              },
+            }),
+          );
+        }
+      } else {
+        console.log('Segment transcription is empty.');
+        // User stopped talking (silence). Send accumulated text to LLM
+        this.triggerLlmQuery(client, session);
+      }
+    } catch (err) {
+      console.error('Error during segment processing:', err);
+    } finally {
+      session.isTranscribing = false;
+      // Recursively call to check if more segments can be processed
+      await this.checkAndProcessSegments(client, session);
+    }
   }
+
+  private triggerLlmQuery(client: any, session: SessionState) {
+    if (session.accumulatedTranscript.trim().length > 0) {
+      const textToProcess = session.accumulatedTranscript;
+      session.accumulatedTranscript = '';
+      console.log(`Queueing LLM response for: "${textToProcess}"`);
+      if (!session.queryQueue) {
+        session.queryQueue = [];
+      }
+      session.queryQueue.push(textToProcess);
+      this.processQueryQueue(client, session);
+    }
+  }
+
+  // --- Helpers for Audio and Gemini Processing ---
 
   private pcmToWav(pcmBuffer: Buffer, sampleRate: number = 16000): Buffer {
     const header = Buffer.alloc(44);
@@ -193,40 +222,34 @@ export class AssistantGateway
   }
 
   private mapModelName(modelName: string): string {
-    if (!modelName) return 'gemini-3.1-flash-lite';
-    if (modelName.includes('gemini-2.0')) {
-      return 'gemini-2.0-flash';
-    }
-    if (modelName.includes('gemini-2.5')) {
-      return 'gemini-2.5-flash';
-    }
-    if (modelName.includes('gemini-3.1')) {
-      return 'gemini-3.1-flash-lite';
-    }
-    if (modelName.startsWith('models/')) {
-      return modelName.substring(7);
-    }
-    return modelName;
+    return 'gemini-3.1-flash-lite';
   }
 
   private async transcribeAudio(wavBuffer: Buffer, model: string): Promise<string> {
     const base64Data = wavBuffer.toString('base64');
     const apiModel = this.mapModelName(model);
-    console.log('Model we are using:', apiModel);
 
     const response = await this.genAi.models.generateContent({
       model: apiModel,
       contents: [
         {
+          text:
+            "You are an audio transcriber. Listen carefully. If the audio contains only background noise, " +
+            "static, breath, hums, or silence, the transcript property MUST be an empty string." +
+            "Do not hallucinate the words, just transcribe what you hear. Always make sure no over thinking or hallusinating. You shall transcribe the words as it is and never change words to other words." +
+            "Never output timestamps or strings like '00:00' under any circumstances."
+        },
+        {
           inlineData: {
             mimeType: 'audio/wav',
             data: base64Data,
           },
-        },
-        'Transcribe the spoken audio exactly. Output ONLY the transcribed text, without any introductory, formatting, or explanatory text. If the audio is silent or contains no spoken words, respond with nothing.',
+        }
       ],
     });
-    console.log('User Voice is transcribed:', response.text);
+    if (response.text) {
+      console.log('User Voice is transcribed: ', response.text);
+    }
 
     return response.text?.trim() || '';
   }
@@ -306,7 +329,7 @@ CRITICAL RULES:
     if (!base64) {
       throw new Error('No audio data generated by Gemini TTS.');
     }
-
+    console.log('Text to speach generation done');
     return { base64, mimeType };
   }
 
@@ -343,56 +366,21 @@ CRITICAL RULES:
     }
   }
 
-  private async processQuery(client: any, session: SessionState) {
-    if (session.isGenerating) return;
+  private async processQueryQueue(client: any, session: SessionState) {
+    if (!session.queryQueue || session.queryQueue.length === 0) return;
+
+    const queryText = session.queryQueue.shift()!;
     session.isGenerating = true;
 
     try {
-      const audioBuffer = Buffer.concat(session.audioChunks);
-      session.audioChunks = []; // Clear buffer for next turn
+      console.log(`Processing user query with LLM: "${queryText}"`);
 
-      if (audioBuffer.length === 0) {
-        session.isGenerating = false;
-        return;
-      }
-
-      console.log(`Processing user query: ${audioBuffer.length} bytes buffer`);
-      const apiKey = this.configService.get<string>('GEMINI_API_KEY') || '';
-      if (!apiKey) {
-        throw new Error('Gemini API Key is not configured on the server.');
-      }
-
-      // 1. PCM to WAV conversion
-      const wavBuffer = this.pcmToWav(audioBuffer, 16000);
-
-      // 2. Speech-to-Text
-      const transcript = await this.transcribeAudio(wavBuffer, session.config.model);
-      console.log(`Transcribed text: "${transcript}"`);
-
-      if (!transcript.trim()) {
-        console.log('Empty transcription. Skipping response.');
-        session.isGenerating = false;
-        return;
-      }
-
-      // Send user transcript back to client so they can display it in chat history
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(
-          JSON.stringify({
-            userContent: {
-              text: transcript,
-            },
-          }),
-        );
-      }
-
-      console.log('session is still active', session.isGenerating);
       // Check if connection was closed or interrupted
       if (!session.isGenerating) return;
 
       // 3. Invoke LLM agent in stream mode
       const responseStream = await this.generateResponseStream(
-        transcript,
+        queryText,
         session.config,
       );
 
@@ -461,7 +449,7 @@ CRITICAL RULES:
         );
       }
     } finally {
-      session.isGenerating = false;
+      this.processQueryQueue(client, session);
     }
   }
 }

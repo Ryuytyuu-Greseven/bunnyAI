@@ -1,6 +1,7 @@
 import { Component, ElementRef, ViewChild, HostListener, AfterViewInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { FormGroup, FormControl, ReactiveFormsModule } from '@angular/forms';
+import { MicVAD } from '@ricky0123/vad-web';
 
 interface ConsoleLog {
   id: number;
@@ -31,7 +32,7 @@ export class App implements AfterViewInit, OnDestroy {
     systemInstruction: new FormControl("You are Aether, a brilliant, friendly, and helpful real-time AI assistant. Respond conversationally, keep your responses concise, and adapt dynamically to the user's tone."),
   });
 
-  constructor(private cdr: ChangeDetectorRef) {}
+  constructor(private cdr: ChangeDetectorRef) { }
 
   // UI states
   isConnected = false;
@@ -62,6 +63,9 @@ export class App implements AfterViewInit, OnDestroy {
   private playbackAnalyser: AnalyserNode | null = null;
   private activeSources = new Set<AudioBufferSourceNode>();
   private nextPlayTime = 0;
+  private myvad: MicVAD | null = null;
+  private audioPlaybackQueue: string[] = [];
+  private isPlayingAudio = false;
 
   // WebSocket Connection
   private socket: WebSocket | null = null;
@@ -130,7 +134,7 @@ export class App implements AfterViewInit, OnDestroy {
   }
 
   addChatMessage(sender: 'user' | 'assistant', text: string) {
-    const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     this.chatMessages.push({
       id: ++this.chatMessageId,
       sender,
@@ -240,7 +244,8 @@ export class App implements AfterViewInit, OnDestroy {
             if (content.modelTurn && content.modelTurn.parts) {
               for (const part of content.modelTurn.parts) {
                 if (part.inlineData && part.inlineData.data) {
-                  this.playAudioChunk(part.inlineData.data);
+                  this.audioPlaybackQueue.push(part.inlineData.data);
+                  this.processPlaybackQueue();
                 }
                 if (part.text) {
                   this.log(`Assistant text transcript: "${part.text}"`, 'info');
@@ -283,7 +288,7 @@ export class App implements AfterViewInit, OnDestroy {
 
   toggleMute() {
     this.isMuted = !this.isMuted;
-    
+
     // Disable/enable actual audio tracks at the stream source so the visualizer flatlines
     if (this.micStream) {
       this.micStream.getAudioTracks().forEach((track) => {
@@ -310,7 +315,7 @@ export class App implements AfterViewInit, OnDestroy {
       audio: {
         echoCancellation: true,
         noiseSuppression: true,
-        autoGainControl: true,
+        autoGainControl: false,
       },
     });
 
@@ -343,9 +348,7 @@ export class App implements AfterViewInit, OnDestroy {
           },
         },
       };
-
       this.socket.send(JSON.stringify(audioChunkMessage));
-
       if (this.hasAudioSignal(this.micAnalyser)) {
         this.isMicIdle = false;
       } else {
@@ -383,89 +386,112 @@ export class App implements AfterViewInit, OnDestroy {
     this.startDrawing(this.playbackAnalyser, this.speakerCanvasRef.nativeElement, '#06b6d4', () => this.isSpeakerIdle);
   }
 
-  // play audio payload (supports MP3/WAV/PCM)
-  private playAudioChunk(base64Data: string) {
-    if (!this.outputAudioContext) {
+  private async processPlaybackQueue() {
+    if (this.isPlayingAudio || this.audioPlaybackQueue.length === 0) {
       return;
     }
 
-    if (this.outputAudioContext.state === 'suspended') {
-      this.outputAudioContext.resume();
+    this.isPlayingAudio = true;
+    const base64Data = this.audioPlaybackQueue.shift()!;
+
+    try {
+      await this.playAudioChunkPromise(base64Data);
+    } catch (err) {
+      console.error('Error playing chunk:', err);
+    } finally {
+      this.isPlayingAudio = false;
+      this.processPlaybackQueue();
     }
+  }
 
-    const arrayBuffer = this.base64ToArrayBuffer(base64Data);
-    // Keep a backup of the arrayBuffer bytes in case decodeAudioData fails and detaches the original buffer
-    const fallbackBuffer = arrayBuffer.slice(0);
+  private playAudioChunkPromise(base64Data: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (!this.outputAudioContext) {
+        reject(new Error('No output audio context'));
+        return;
+      }
 
-    this.outputAudioContext.decodeAudioData(arrayBuffer)
-      .then((buffer) => {
-        if (!this.outputAudioContext) return;
-        const source = this.outputAudioContext.createBufferSource();
-        source.buffer = buffer;
-        source.connect(this.playbackAnalyser!);
+      if (this.outputAudioContext.state === 'suspended') {
+        this.outputAudioContext.resume();
+      }
 
-        const startTime = Math.max(this.outputAudioContext.currentTime, this.nextPlayTime);
-        source.start(startTime);
-        this.nextPlayTime = startTime + buffer.duration;
+      const arrayBuffer = this.base64ToArrayBuffer(base64Data);
+      const fallbackBuffer = arrayBuffer.slice(0);
 
-        this.activeSources.add(source);
-        source.onended = () => {
-          this.activeSources.delete(source);
-          if (this.activeSources.size === 0) {
-            this.isSpeakerIdle = true;
+      this.outputAudioContext.decodeAudioData(arrayBuffer)
+        .then((buffer) => {
+          if (!this.outputAudioContext) {
+            reject(new Error('Audio context closed during decode'));
+            return;
           }
-        };
-
-        this.isSpeakerIdle = false;
-      })
-      .catch((err) => {
-        console.warn('Failed to decode using decodeAudioData, attempting fallback as raw PCM...', err);
-        // Fallback to raw PCM 24kHz just in case
-        try {
-          if (!this.outputAudioContext) return;
-          const int16Array = new Int16Array(fallbackBuffer);
-          const float32Array = new Float32Array(int16Array.length);
-
-          for (let i = 0; i < int16Array.length; i++) {
-            float32Array[i] = int16Array[i] / 32768.0;
-          }
-
-          const buffer = this.outputAudioContext.createBuffer(1, float32Array.length, 24000);
-          buffer.copyToChannel(float32Array, 0);
-
           const source = this.outputAudioContext.createBufferSource();
           source.buffer = buffer;
           source.connect(this.playbackAnalyser!);
 
-          const startTime = Math.max(this.outputAudioContext.currentTime, this.nextPlayTime);
-          source.start(startTime);
-          this.nextPlayTime = startTime + buffer.duration;
-
+          source.start(0);
           this.activeSources.add(source);
+          this.isSpeakerIdle = false;
+          this.cdr.detectChanges();
+
           source.onended = () => {
             this.activeSources.delete(source);
             if (this.activeSources.size === 0) {
               this.isSpeakerIdle = true;
+              this.cdr.detectChanges();
             }
+            resolve();
           };
+        })
+        .catch((err) => {
+          console.warn('Failed to decode using decodeAudioData, attempting fallback as raw PCM...', err);
+          try {
+            if (!this.outputAudioContext) {
+              reject(new Error('Audio context closed'));
+              return;
+            }
+            const int16Array = new Int16Array(fallbackBuffer);
+            const float32Array = new Float32Array(int16Array.length);
 
-          this.isSpeakerIdle = false;
-        } catch (fallbackErr) {
-          console.error('Audio playback fallback failed:', fallbackErr);
-        }
-      });
+            for (let i = 0; i < int16Array.length; i++) {
+              float32Array[i] = int16Array[i] / 32768.0;
+            }
+
+            const buffer = this.outputAudioContext.createBuffer(1, float32Array.length, 24000);
+            buffer.copyToChannel(float32Array, 0);
+
+            const source = this.outputAudioContext.createBufferSource();
+            source.buffer = buffer;
+            source.connect(this.playbackAnalyser!);
+
+            source.start(0);
+            this.activeSources.add(source);
+            this.isSpeakerIdle = false;
+            this.cdr.detectChanges();
+
+            source.onended = () => {
+              this.activeSources.delete(source);
+              if (this.activeSources.size === 0) {
+                this.isSpeakerIdle = true;
+                this.cdr.detectChanges();
+              }
+              resolve();
+            };
+          } catch (fallbackErr) {
+            reject(fallbackErr);
+          }
+        });
+    });
   }
 
   private stopPlaybackQueue() {
+    this.audioPlaybackQueue = [];
+    this.isPlayingAudio = false;
     this.activeSources.forEach((source) => {
       try {
         source.stop();
       } catch (e) { }
     });
     this.activeSources.clear();
-    if (this.outputAudioContext) {
-      this.nextPlayTime = this.outputAudioContext.currentTime;
-    }
     this.isSpeakerIdle = true;
   }
 
@@ -474,6 +500,14 @@ export class App implements AfterViewInit, OnDestroy {
     this.isConnected = false;
     this.isConnecting = false;
     this.configForm.enable();
+
+    // Stop VAD
+    if (this.myvad) {
+      try {
+        this.myvad.destroy();
+      } catch (e) { }
+      this.myvad = null;
+    }
 
     // Stop streams
     if (this.micStream) {
@@ -515,7 +549,7 @@ export class App implements AfterViewInit, OnDestroy {
   }
 
   // Base64 helpers
-  private arrayBufferToBase64(buffer: ArrayBuffer): string {
+  private arrayBufferToBase64(buffer: ArrayBuffer | SharedArrayBuffer): string {
     let binary = '';
     const bytes = new Uint8Array(buffer);
     const len = bytes.byteLength;
@@ -608,5 +642,14 @@ export class App implements AfterViewInit, OnDestroy {
     };
 
     draw();
+  }
+
+  private float32ToInt16(float32Array: Float32Array): Int16Array {
+    const int16Array = new Int16Array(float32Array.length);
+    for (let i = 0; i < float32Array.length; i++) {
+      const s = Math.max(-1, Math.min(1, float32Array[i]));
+      int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    }
+    return int16Array;
   }
 }
