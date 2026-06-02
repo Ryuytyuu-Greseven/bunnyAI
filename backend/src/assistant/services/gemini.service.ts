@@ -1,0 +1,172 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { GoogleGenAI } from '@google/genai';
+import { UserConfig } from '../types/assistant.types';
+import { IAiService } from '../interfaces/ai.interface';
+
+@Injectable()
+export class GeminiService implements IAiService {
+  private readonly logger = new Logger(GeminiService.name);
+  private genAi: GoogleGenAI;
+  private readonly apiKey: string | undefined;
+
+  constructor(private configService: ConfigService) {
+    this.apiKey = this.configService.get<string>('GEMINI_API_KEY');
+    this.genAi = new GoogleGenAI({
+      vertexai: true,
+      apiKey: this.apiKey,
+    });
+  }
+
+  public hasValidApiKey(): boolean {
+    return !!this.apiKey && this.apiKey !== 'YOUR_GEMINI_HERE';
+  }
+
+  private mapModelName(modelName: string): string {
+    return 'gemini-3.1-flash-lite';
+  }
+
+  public async transcribeAudio(wavBuffer: Buffer, model: string): Promise<string> {
+    const base64Data = wavBuffer.toString('base64');
+    const apiModel = this.mapModelName(model);
+
+    const response = await this.genAi.models.generateContent({
+      model: apiModel,
+      contents: [
+        {
+          text:
+            "You are an audio transcriber. Listen carefully. If the audio contains only background noise, " +
+            "static, breath, hums, or silence, the transcript property MUST be an empty string." +
+            "Do not hallucinate the words, just transcribe what you hear. Always make sure no over thinking or hallusinating. You shall transcribe the words as it is and never change words to other words." +
+            "Never output timestamps or strings like '00:00' under any circumstances."
+        },
+        {
+          inlineData: {
+            mimeType: 'audio/wav',
+            data: base64Data,
+          },
+        }
+      ],
+    });
+    if (response.text) {
+      this.logger.log(`User Voice is transcribed: ${response.text}`);
+    }
+
+    return response.text?.trim() || '';
+  }
+
+  public async generateResponseStream(
+    query: string,
+    config: UserConfig,
+  ): Promise<any> {
+    const clientData = `
+CLIENT: Oracle HCM Support Assistant (Aether)
+SCOPE: Help employees and HR administrators with Oracle HCM SaaS product inquiries.
+FAQ/KNOWLEDGE BASE:
+1. How to apply for leave?
+   - Navigate to 'Me' -> 'Time and Absence' -> 'Add Absence'. Select absence type, dates, and click Submit.
+2. How to view my payslip?
+   - Navigate to 'Me' -> 'Pay' -> 'My Payslips'. You can view or download payslips for any pay period.
+3. How to update personal info (address, phone)?
+   - Go to 'Me' -> 'Personal Information' -> 'Personal Details'. Click Edit on the section you want to update, enter the new details, and submit.
+4. Support Escalation:
+   - If an issue is unsolvable (e.g., payroll discrepancies, system errors), route the call to a live agent.
+`;
+
+    const finalSystemInstruction = `${config.systemInstruction}
+
+Here is the CLIENT-SPECIFIC DATA you must use to answer the user's queries:
+${clientData}
+
+CRITICAL RULES:
+1. You must respond in the same language as the user's query. If the user speaks in English, Telugu, or Hindi, respond in that language.
+2. You must prefix your response with the language code in square brackets, followed by a colon.
+   - For English: [en]: <your response>
+   - For Telugu: [te]: <your response>
+   - For Hindi: [hi]: <your response>
+3. Keep your response concise (1-3 sentences maximum).
+4. If you cannot solve the user's query based on the client data, explain politely that you will connect them to a live agent.`;
+
+    const apiModel = this.mapModelName(config.model);
+    this.logger.log(`Model we selected for the response generation stream: ${apiModel}`);
+
+    const responseStream = await this.genAi.models.generateContentStream({
+      model: apiModel,
+      contents: query,
+      config: {
+        systemInstruction: finalSystemInstruction,
+      },
+    });
+
+    return responseStream;
+  }
+
+  public async textToSpeech(text: string, voice: string): Promise<{ base64: string; mimeType: string }> {
+    this.logger.log(`Now starting text to speech using Gemini model for: "${text}"`);
+    const response = await this.genAi.models.generateContent({
+      model: 'gemini-3.1-flash-tts-preview',
+      contents: text,
+      config: {
+        responseModalities: ['AUDIO'],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName: voice }
+          }
+        }
+      }
+    });
+
+    const parts = response.candidates?.[0]?.content?.parts || [];
+    let base64 = '';
+    let mimeType = 'audio/mp3';
+    for (const part of parts) {
+      if (part.inlineData && part.inlineData.data) {
+        base64 = part.inlineData.data;
+        mimeType = part.inlineData.mimeType || 'audio/mp3';
+        break;
+      }
+    }
+
+    if (!base64) {
+      throw new Error('No audio data generated by Gemini TTS.');
+    }
+    this.logger.log('Text to speach generation done');
+    return { base64, mimeType };
+  }
+
+  public getDefaultConfig(): UserConfig {
+    return {
+      model: 'models/gemini-3.1-flash-lite',
+      voice: 'Aoede',
+      systemInstruction: 'You are Madhuri, a brilliant, friendly, and helpful real-time AI assistant.',
+    };
+  }
+
+  public parseSetupConfig(setupConfig: any): UserConfig {
+    return {
+      model: setupConfig.model || 'models/gemini-3.1-flash-lite',
+      systemInstruction: setupConfig.systemInstruction?.parts?.[0]?.text || '',
+      voice: setupConfig.generationConfig?.speechConfig?.voiceConfig?.prebuiltVoiceConfig?.voiceName || 'Aoede',
+    };
+  }
+
+  public formatResponsePayload(base64Audio: string, mimeType: string, text: string): any {
+    return {
+      serverContent: {
+        modelTurn: {
+          parts: [
+            {
+              inlineData: {
+                mimeType,
+                data: base64Audio,
+              },
+            },
+            {
+              text,
+            },
+          ],
+        },
+      },
+    };
+  }
+}
