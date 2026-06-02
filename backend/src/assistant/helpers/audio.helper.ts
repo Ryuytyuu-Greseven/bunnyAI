@@ -1,4 +1,7 @@
-export function pcmToWav(pcmBuffer: Buffer, sampleRate: number = 16000): Buffer {
+export function pcmToWav(
+  pcmBuffer: Buffer,
+  sampleRate: number = 16000,
+): Buffer {
   const header = Buffer.alloc(44);
   header.write('RIFF', 0);
   header.writeUInt32LE(36 + pcmBuffer.length, 4);

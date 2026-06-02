@@ -11,4 +11,4 @@ import { AssistantModule } from './assistant/assistant.module';
     AssistantModule,
   ],
 })
-export class AppModule { }
+export class AppModule {}

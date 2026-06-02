@@ -26,7 +26,10 @@ export class GeminiService implements IAiService {
     return 'gemini-3.1-flash-lite';
   }
 
-  public async transcribeAudio(wavBuffer: Buffer, model: string): Promise<string> {
+  public async transcribeAudio(
+    wavBuffer: Buffer,
+    model: string,
+  ): Promise<string> {
     const base64Data = wavBuffer.toString('base64');
     const apiModel = this.mapModelName(model);
 
@@ -35,17 +38,17 @@ export class GeminiService implements IAiService {
       contents: [
         {
           text:
-            "You are an audio transcriber. Listen carefully. If the audio contains only background noise, " +
-            "static, breath, hums, or silence, the transcript property MUST be an empty string." +
-            "Do not hallucinate the words, just transcribe what you hear. Always make sure no over thinking or hallusinating. You shall transcribe the words as it is and never change words to other words." +
-            "Never output timestamps or strings like '00:00' under any circumstances."
+            'You are an audio transcriber. Listen carefully. If the audio contains only background noise, ' +
+            'static, breath, hums, or silence, the transcript property MUST be an empty string.' +
+            'Do not hallucinate the words, just transcribe what you hear. Always make sure no over thinking or hallusinating. You shall transcribe the words as it is and never change words to other words.' +
+            "Never output timestamps or strings like '00:00' under any circumstances.",
         },
         {
           inlineData: {
             mimeType: 'audio/wav',
             data: base64Data,
           },
-        }
+        },
       ],
     });
     if (response.text) {
@@ -88,7 +91,9 @@ CRITICAL RULES:
 4. If you cannot solve the user's query based on the client data, explain politely that you will connect them to a live agent.`;
 
     const apiModel = this.mapModelName(config.model);
-    this.logger.log(`Model we selected for the response generation stream: ${apiModel}`);
+    this.logger.log(
+      `Model we selected for the response generation stream: ${apiModel}`,
+    );
 
     const responseStream = await this.genAi.models.generateContentStream({
       model: apiModel,
@@ -101,8 +106,13 @@ CRITICAL RULES:
     return responseStream;
   }
 
-  public async textToSpeech(text: string, voice: string): Promise<{ base64: string; mimeType: string }> {
-    this.logger.log(`Now starting text to speech using Gemini model for: "${text}"`);
+  public async textToSpeech(
+    text: string,
+    voice: string,
+  ): Promise<{ base64: string; mimeType: string }> {
+    this.logger.log(
+      `Now starting text to speech using Gemini model for: "${text}"`,
+    );
     const response = await this.genAi.models.generateContent({
       model: 'gemini-3.1-flash-tts-preview',
       contents: text,
@@ -110,10 +120,10 @@ CRITICAL RULES:
         responseModalities: ['AUDIO'],
         speechConfig: {
           voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: voice }
-          }
-        }
-      }
+            prebuiltVoiceConfig: { voiceName: voice },
+          },
+        },
+      },
     });
 
     const parts = response.candidates?.[0]?.content?.parts || [];
@@ -138,7 +148,8 @@ CRITICAL RULES:
     return {
       model: 'models/gemini-3.1-flash-lite',
       voice: 'Aoede',
-      systemInstruction: 'You are Madhuri, a brilliant, friendly, and helpful real-time AI assistant.',
+      systemInstruction:
+        'You are Madhuri, a brilliant, friendly, and helpful real-time AI assistant.',
     };
   }
 
@@ -146,11 +157,17 @@ CRITICAL RULES:
     return {
       model: setupConfig.model || 'models/gemini-3.1-flash-lite',
       systemInstruction: setupConfig.systemInstruction?.parts?.[0]?.text || '',
-      voice: setupConfig.generationConfig?.speechConfig?.voiceConfig?.prebuiltVoiceConfig?.voiceName || 'Aoede',
+      voice:
+        setupConfig.generationConfig?.speechConfig?.voiceConfig
+          ?.prebuiltVoiceConfig?.voiceName || 'Aoede',
     };
   }
 
-  public formatResponsePayload(base64Audio: string, mimeType: string, text: string): any {
+  public formatResponsePayload(
+    base64Audio: string,
+    mimeType: string,
+    text: string,
+  ): any {
     return {
       serverContent: {
         modelTurn: {

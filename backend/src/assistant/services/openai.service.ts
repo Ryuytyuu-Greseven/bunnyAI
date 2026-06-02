@@ -11,16 +11,28 @@ export class OpenAiService implements IAiService {
     return true;
   }
 
-  public async transcribeAudio(wavBuffer: Buffer, model: string): Promise<string> {
-    this.logger.log(`Transcribing audio with OpenAI Whisper (stub) - model: ${model}`);
+  public async transcribeAudio(
+    wavBuffer: Buffer,
+    model: string,
+  ): Promise<string> {
+    this.logger.log(
+      `Transcribing audio with OpenAI Whisper (stub) - model: ${model}`,
+    );
     return 'This is a stub transcription from OpenAI Whisper.';
   }
 
-  public async generateResponseStream(query: string, config: UserConfig): Promise<any> {
-    this.logger.log(`Generating response stream with OpenAI (stub) - query: "${query}"`);
+  public async generateResponseStream(
+    query: string,
+    config: UserConfig,
+  ): Promise<any> {
+    this.logger.log(
+      `Generating response stream with OpenAI (stub) - query: "${query}"`,
+    );
 
     const mockChunks = [
-      { text: `[en]: Hello! This is a mock response from OpenAI service. You queried: "${query}".` }
+      {
+        text: `[en]: Hello! This is a mock response from OpenAI service. You queried: "${query}".`,
+      },
     ];
 
     return (async function* () {
@@ -30,10 +42,16 @@ export class OpenAiService implements IAiService {
     })();
   }
 
-  public async textToSpeech(text: string, voice: string): Promise<{ base64: string; mimeType: string }> {
-    this.logger.log(`Synthesizing TTS with OpenAI TTS (stub) - text: "${text}", voice: "${voice}"`);
+  public async textToSpeech(
+    text: string,
+    voice: string,
+  ): Promise<{ base64: string; mimeType: string }> {
+    this.logger.log(
+      `Synthesizing TTS with OpenAI TTS (stub) - text: "${text}", voice: "${voice}"`,
+    );
     // Return a dummy base64 audio chunk
-    const dummyBase64 = 'UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAAA';
+    const dummyBase64 =
+      'UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAAA';
     return {
       base64: dummyBase64,
       mimeType: 'audio/mp3',
@@ -44,7 +62,8 @@ export class OpenAiService implements IAiService {
     return {
       model: 'gpt-4o',
       voice: 'alloy',
-      systemInstruction: 'You are Madhuri, a brilliant, friendly, and helpful real-time AI assistant.',
+      systemInstruction:
+        'You are Madhuri, a brilliant, friendly, and helpful real-time AI assistant.',
     };
   }
 
@@ -56,7 +75,11 @@ export class OpenAiService implements IAiService {
     };
   }
 
-  public formatResponsePayload(base64Audio: string, mimeType: string, text: string): any {
+  public formatResponsePayload(
+    base64Audio: string,
+    mimeType: string,
+    text: string,
+  ): any {
     return {
       serverContent: {
         modelTurn: {

@@ -5,11 +5,11 @@ import {
 } from '@nestjs/websockets';
 import { AssistantService } from '../services/assistant.service';
 
-@WebSocketGateway({ path: '/ws' })
+@WebSocketGateway({ path: '/ws-custom' })
 export class AssistantGateway
-  implements OnGatewayConnection, OnGatewayDisconnect {
-
-  constructor(private readonly assistantService: AssistantService) { }
+  implements OnGatewayConnection, OnGatewayDisconnect
+{
+  constructor(private readonly assistantService: AssistantService) {}
 
   handleConnection(client: any) {
     this.assistantService.initializeSession(client);
@@ -28,7 +28,10 @@ export class AssistantGateway
 
         // 2. Handle Realtime Input (Audio Chunks)
         if (msg.realtimeInput && msg.realtimeInput.audio) {
-          this.assistantService.handleAudioChunk(client, msg.realtimeInput.audio.data);
+          this.assistantService.handleAudioChunk(
+            client,
+            msg.realtimeInput.audio.data,
+          );
         }
       } catch (err) {
         console.error('Error handling client message in gateway:', err);

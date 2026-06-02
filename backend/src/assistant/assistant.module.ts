@@ -27,4 +27,4 @@ import { SharedAiService } from './services/shared-ai.service';
     SharedAiService,
   ],
 })
-export class AssistantModule { }
+export class AssistantModule {}

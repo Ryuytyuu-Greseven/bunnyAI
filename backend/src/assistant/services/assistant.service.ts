@@ -9,7 +9,7 @@ export class AssistantService {
   private readonly logger = new Logger(AssistantService.name);
   private sessions = new Map<any, SessionState>();
 
-  constructor(private readonly sharedAiService: SharedAiService) { }
+  constructor(private readonly sharedAiService: SharedAiService) {}
 
   public initializeSession(client: any): void {
     this.logger.log('Client connected to WebSocket Gateway');
@@ -51,7 +51,9 @@ export class AssistantService {
     const session = this.sessions.get(client);
     if (session) {
       session.config = this.sharedAiService.parseSetupConfig(setupConfig);
-      this.logger.log(`Session setup updated: ${JSON.stringify(session.config)}`);
+      this.logger.log(
+        `Session setup updated: ${JSON.stringify(session.config)}`,
+      );
     }
   }
 
@@ -70,7 +72,10 @@ export class AssistantService {
 
   // processing for every 5seconds
   private async checkAndProcessSegments(client: any, session: SessionState) {
-    const totalSize = session.audioChunks.reduce((acc, chunk) => acc + chunk.length, 0);
+    const totalSize = session.audioChunks.reduce(
+      (acc, chunk) => acc + chunk.length,
+      0,
+    );
     if (totalSize < 160000) {
       return;
     }
@@ -91,7 +96,10 @@ export class AssistantService {
       session.segmentIndex = currentIdx + 1;
 
       // Transcribe using Speech-to-Text
-      const transcript = await this.sharedAiService.transcribeAudio(wavBuffer, session.config.model);
+      const transcript = await this.sharedAiService.transcribeAudio(
+        wavBuffer,
+        session.config.model,
+      );
       const cleaned = transcript.trim();
 
       if (cleaned.length > 0) {
@@ -137,14 +145,24 @@ export class AssistantService {
     }
   }
 
-  private async speakAndSend(client: any, session: SessionState, sentence: string, lang: string) {
+  private async speakAndSend(
+    client: any,
+    session: SessionState,
+    sentence: string,
+    lang: string,
+  ) {
     try {
       this.logger.log(`TTS synthesis for sentence: "${sentence}" in [${lang}]`);
-      const { base64: base64Audio, mimeType } = await this.sharedAiService.textToSpeech(sentence, session.config.voice);
+      const { base64: base64Audio, mimeType } =
+        await this.sharedAiService.textToSpeech(sentence, session.config.voice);
 
       if (!session.isGenerating) return;
 
-      const responsePayload = this.sharedAiService.formatResponsePayload(base64Audio, mimeType, sentence + ' ');
+      const responsePayload = this.sharedAiService.formatResponsePayload(
+        base64Audio,
+        mimeType,
+        sentence + ' ',
+      );
 
       if (client.readyState === WebSocket.OPEN) {
         client.send(JSON.stringify(responsePayload));
@@ -206,7 +224,12 @@ export class AssistantService {
         // Check for sentence boundaries in buffer
         let boundaryIndex = -1;
         for (let i = 0; i < buffer.length; i++) {
-          if (buffer[i] === '.' || buffer[i] === '?' || buffer[i] === '!' || buffer[i] === '\n') {
+          if (
+            buffer[i] === '.' ||
+            buffer[i] === '?' ||
+            buffer[i] === '!' ||
+            buffer[i] === '\n'
+          ) {
             boundaryIndex = i;
             break;
           }
@@ -226,7 +249,6 @@ export class AssistantService {
       if (session.isGenerating && buffer.trim()) {
         await this.speakAndSend(client, session, buffer.trim(), detectedLang);
       }
-
     } catch (err) {
       this.logger.error('Error during query processing:', err);
       if (client.readyState === WebSocket.OPEN) {
