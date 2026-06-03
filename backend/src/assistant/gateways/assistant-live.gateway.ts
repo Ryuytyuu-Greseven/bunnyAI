@@ -15,10 +15,11 @@ interface SessionState {
 
 @WebSocketGateway({ path: '/ws-old' })
 export class AssistantLiveGateway
-  implements OnGatewayConnection, OnGatewayDisconnect {
+  implements OnGatewayConnection, OnGatewayDisconnect
+{
   private sessions = new Map<WebSocket, SessionState>();
 
-  constructor(private configService: ConfigService) { }
+  constructor(private configService: ConfigService) {}
 
   handleConnection(client: WebSocket) {
     console.log('[Live Gateway] Client connected to Live WebSocket Gateway');
@@ -72,13 +73,14 @@ export class AssistantLiveGateway
             msg.setup.generationConfig?.speechConfig?.voiceConfig
               ?.prebuiltVoiceConfig?.voiceName || 'Aoede';
           // const modelName = msg.setup.model || 'gemini-3.1-flash-live-preview';
-          const modelName = 'projects/project-3857994f-2565-4c14-9a7/locations/us-central1/publishers/google/models/gemini-3.1-flash-live-preview';
+          const modelName =
+            'projects/project-3857994f-2565-4c14-9a7/locations/us-central1/publishers/google/models/gemini-3.1-flash-live-preview';
 
           try {
             const genAi = new GoogleGenAI({
               apiKey: apiKey,
               vertexai: true,
-              enterprise: true
+              enterprise: true,
             });
 
             console.log(

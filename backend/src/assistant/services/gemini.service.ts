@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenAI } from '@google/genai';
+import { v2 } from '@google-cloud/speech';
 import { UserConfig } from '../types/assistant.types';
 import { IAiService } from '../interfaces/ai.interface';
 
@@ -30,6 +31,62 @@ export class GeminiService implements IAiService {
     wavBuffer: Buffer,
     model: string,
   ): Promise<string> {
+    const startTime = Date.now();
+    const projectId = this.configService.get<string>('GOOGLE_CLOUD_PROJECT');
+    const location = this.configService.get<string>('GOOGLE_CLOUD_LOCATION_IN');
+    const recognizerId =
+      this.configService.get<string>('GOOGLE_CLOUD_STT_RECOGNIZER_ID');
+
+    const recognizerPath = `projects/${projectId}/locations/${location}/recognizers/${recognizerId}`;
+
+
+    try {
+      const speechClient = new v2.SpeechClient({ apiEndpoint: `${location}-speech.googleapis.com` });
+      const base64Data = wavBuffer.toString('base64');
+      const request = {
+        recognizer: recognizerPath,
+        config: {
+          languageCodes: ['en-US'],
+          model: 'chirp_3',
+          features: {
+            enableWordTimeOffsets: true,
+          },
+        },
+        interimResults: true,
+        content: base64Data,
+      };
+
+      const [response] = await speechClient.recognize(request);
+
+      if (!response.results || response.results.length === 0) {
+        this.logger.log('[Cloud STT V2] No results returned.');
+        return '';
+      }
+
+      const transcription = response.results
+        .map((result) => result.alternatives?.[0]?.transcript || '')
+        .join(' ')
+        .trim();
+
+      const duration = Date.now() - startTime;
+      this.logger.log(
+        `[Cloud STT V2] Transcribed: "${transcription}" in ${duration}ms`,
+      );
+      return transcription;
+    } catch (err) {
+      this.logger.error(
+        `[Cloud STT V2] Failed to transcribe using Cloud Speech V2. Falling back to GeminiTranscribe. Error: ${err.message || err}`,
+      );
+      throw err;
+      // return this.geminiTranscribe(wavBuffer, model);
+    }
+  }
+
+  public async geminiTranscribe(
+    wavBuffer: Buffer,
+    model: string,
+  ): Promise<string> {
+    const startTime = Date.now();
     const base64Data = wavBuffer.toString('base64');
     const apiModel = this.mapModelName(model);
 
@@ -51,8 +108,11 @@ export class GeminiService implements IAiService {
         },
       ],
     });
+    const duration = Date.now() - startTime;
     if (response.text) {
-      this.logger.log(`User Voice is transcribed: ${response.text}`);
+      this.logger.log(
+        `User Voice is transcribed (Gemini): ${response.text} in ${duration}ms`,
+      );
     }
 
     return response.text?.trim() || '';

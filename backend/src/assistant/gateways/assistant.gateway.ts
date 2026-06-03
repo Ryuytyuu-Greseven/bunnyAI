@@ -7,8 +7,9 @@ import { AssistantService } from '../services/assistant.service';
 
 @WebSocketGateway({ path: '/ws' })
 export class AssistantGateway
-  implements OnGatewayConnection, OnGatewayDisconnect {
-  constructor(private readonly assistantService: AssistantService) { }
+  implements OnGatewayConnection, OnGatewayDisconnect
+{
+  constructor(private readonly assistantService: AssistantService) {}
 
   handleConnection(client: any) {
     this.assistantService.initializeSession(client);
