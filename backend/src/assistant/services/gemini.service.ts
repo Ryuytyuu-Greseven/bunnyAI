@@ -78,7 +78,6 @@ export class GeminiService implements IAiService {
         `[Cloud STT V2] Failed to transcribe using Cloud Speech V2. Falling back to GeminiTranscribe. Error: ${err.message || err}`,
       );
       throw err;
-      // return this.geminiTranscribe(wavBuffer, model);
     }
   }
 
