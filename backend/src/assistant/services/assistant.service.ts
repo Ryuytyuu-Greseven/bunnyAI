@@ -9,7 +9,7 @@ export class AssistantService {
   private readonly logger = new Logger(AssistantService.name);
   private sessions = new Map<any, SessionState>();
 
-  constructor(private readonly sharedAiService: SharedAiService) {}
+  constructor(private readonly sharedAiService: SharedAiService) { }
 
   public initializeSession(client: any): void {
     this.logger.log('Client connected to WebSocket Gateway');
@@ -28,7 +28,7 @@ export class AssistantService {
     }
 
     // Initialize state for this connection
-    this.sessions.set(client, {
+    const session: SessionState = {
       config: this.sharedAiService.getDefaultConfig(),
       speechStarted: false,
       silenceStartTimestamp: 0,
@@ -39,12 +39,40 @@ export class AssistantService {
       isTranscribing: false,
       segmentIndex: 0,
       queryQueue: [],
-    });
+    };
+
+    this.sessions.set(client, session);
+
+    // Initialize real-time Speech-to-Text stream
+    try {
+      this.logger.log('Sessions strtreaming started');
+      session.sttStream = this.sharedAiService.createSttStream(
+        (data: any) => this.handleSttData(client, data),
+        (err: any) => this.handleSttError(client, err),
+      );
+      this.logger.log(`Stream Check 2: ${session.sttStream.destroyed}`);
+    } catch (err) {
+      this.logger.error('Failed to create STT stream for connection:', err);
+    }
   }
 
   public cleanupSession(client: any): void {
     this.logger.log('Client disconnected from WebSocket Gateway');
-    this.sessions.delete(client);
+    const session = this.sessions.get(client);
+    if (session) {
+      if (session.silenceTimeout) {
+        clearTimeout(session.silenceTimeout);
+        session.silenceTimeout = null;
+      }
+      if (session.sttStream) {
+        try {
+          session.sttStream.end();
+        } catch (e) {
+          this.logger.error('Error ending STT stream during cleanup:', e);
+        }
+      }
+      this.sessions.delete(client);
+    }
   }
 
   public updateSessionConfig(client: any, setupConfig: any): void {
@@ -62,73 +90,70 @@ export class AssistantService {
     if (!session) return;
 
     const chunkBuffer = Buffer.from(base64Audio, 'base64');
-
-    // Always accumulate audio chunks while not generating
-    session.audioChunks.push(chunkBuffer);
-
-    // Try to process periodic segments
-    this.checkAndProcessSegments(client, session);
+    if (session.sttStream) {
+      try {
+        session.sttStream.write({
+          audio: chunkBuffer,
+        });
+      } catch (err) {
+        this.logger.error('Error writing to STT stream:', err);
+      }
+    } else {
+      this.logger.error('STT stream is not initialized');
+    }
   }
 
-  // processing for every 5seconds
-  private async checkAndProcessSegments(client: any, session: SessionState) {
-    const totalSize = session.audioChunks.reduce(
-      (acc, chunk) => acc + chunk.length,
-      0,
-    );
-    if (totalSize < 160000) {
-      return;
+  private handleSttData(client: any, transcript: any): void {
+    const session = this.sessions.get(client);
+    if (!session || !transcript) return;
+
+    const cleaned = transcript.trim();
+    if (!cleaned) return;
+
+    // Reset silence timeout
+    this.resetSilenceTimeout(client, session);
+
+    if (cleaned) {
+      this.logger.log(`[STT Stream] Final segment: "${cleaned}"`);
+      session.accumulatedTranscript = session.accumulatedTranscript
+        ? session.accumulatedTranscript + ' ' + cleaned
+        : cleaned;
+
+      // Send to client
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(
+          JSON.stringify({
+            userContent: {
+              text: cleaned,
+            },
+          }),
+        );
+      }
+    }
+  }
+
+  private handleSttError(client: any, err: any): void {
+    this.logger.error(`[STT Stream] Error: ${err.message || err}`, err);
+  }
+
+  private resetSilenceTimeout(client: any, session: SessionState): void {
+    if (session.silenceTimeout) {
+      clearTimeout(session.silenceTimeout);
+      session.silenceTimeout = null;
     }
 
-    session.isTranscribing = true;
+    session.silenceTimeout = setTimeout(() => {
+      this.handleSilenceTimeout(client, session);
+    }, 1000);
+  }
 
-    try {
-      const concatenated = Buffer.concat(session.audioChunks);
-      const segment = concatenated.subarray(0, 160000);
-      const remainder = concatenated.subarray(160000);
-
-      session.audioChunks = remainder.length > 0 ? [remainder] : [];
-
-      // Convert segment to WAV format
-      const wavBuffer = pcmToWav(segment, 16000);
-
-      const currentIdx = session.segmentIndex;
-      session.segmentIndex = currentIdx + 1;
-
-      // Transcribe using Speech-to-Text
-      const transcript = await this.sharedAiService.transcribeAudio(
-        wavBuffer,
-        session.config.model,
+  private handleSilenceTimeout(client: any, session: SessionState): void {
+    session.silenceTimeout = null;
+    if (session.accumulatedTranscript.trim().length > 0) {
+      this.logger.log(
+        `[Silence Timeout] Silence detected. Triggering LLM query.`,
       );
-      const cleaned = transcript.trim();
-
-      if (cleaned.length > 0) {
-        this.logger.log(`Segment transcription: "${cleaned}"`);
-        session.accumulatedTranscript = session.accumulatedTranscript
-          ? session.accumulatedTranscript + ' ' + cleaned
-          : cleaned;
-
-        // Send to client
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(
-            JSON.stringify({
-              userContent: {
-                text: cleaned,
-              },
-            }),
-          );
-        }
-      } else {
-        this.logger.log('Segment transcription is empty.');
-        // User stopped talking (silence). Send accumulated text to LLM
-        this.triggerLlmQuery(client, session);
-      }
-    } catch (err) {
-      this.logger.error('Error during segment processing:', err);
-    } finally {
-      session.isTranscribing = false;
-      // Recursively call to check if more segments can be processed
-      await this.checkAndProcessSegments(client, session);
+      this.triggerLlmQuery(client, session);
     }
   }
 
@@ -142,33 +167,6 @@ export class AssistantService {
       }
       session.queryQueue.push(textToProcess);
       this.processQueryQueue(client, session);
-    }
-  }
-
-  private async speakAndSend(
-    client: any,
-    session: SessionState,
-    sentence: string,
-    lang: string,
-  ) {
-    try {
-      this.logger.log(`TTS synthesis for sentence: "${sentence}" in [${lang}]`);
-      const { base64: base64Audio, mimeType } =
-        await this.sharedAiService.textToSpeech(sentence, session.config.voice);
-
-      if (!session.isGenerating) return;
-
-      const responsePayload = this.sharedAiService.formatResponsePayload(
-        base64Audio,
-        mimeType,
-        sentence + ' ',
-      );
-
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify(responsePayload));
-      }
-    } catch (err) {
-      this.logger.error('Error in speakAndSend:', err);
     }
   }
 
@@ -189,66 +187,42 @@ export class AssistantService {
         queryText,
         session.config,
       );
+      // Call streaming text to speech
+      await this.sharedAiService.textToSpeech(
+        responseStream,
+        session.config.voice,
+        (base64Audio: string, text: string) => {
+          if (!session.isGenerating) return;
 
-      // Check if connection was closed or interrupted
-      if (!session.isGenerating) return;
-
-      let buffer = '';
-      let detectedLang = 'en';
-      let languageExtracted = false;
-
-      // Iterate over LLM response stream, synthesizing and sending sentence-by-sentence
-      for await (const chunk of responseStream) {
-        if (!session.isGenerating) break;
-
-        const chunkText = chunk.text || '';
-        buffer += chunkText;
-
-        // Extract language prefix if present
-        if (!languageExtracted) {
-          if (buffer.includes(']:')) {
-            const prefixIndex = buffer.indexOf(']:');
-            const prefix = buffer.substring(0, prefixIndex + 2); // e.g. "[en]:"
-            const match = prefix.match(/^\[([a-z]{2})\]:/);
-            if (match) {
-              detectedLang = match[1];
-            }
-            buffer = buffer.substring(prefixIndex + 2); // strip the prefix from the buffer
-            languageExtracted = true;
-          } else if (buffer.length > 20) {
-            // Fallback if no prefix found after 20 characters
-            languageExtracted = true;
+          const parts: any[] = [];
+          if (base64Audio) {
+            parts.push({
+              inlineData: {
+                mimeType: 'audio/l16', // LINEAR16 raw PCM
+                data: base64Audio,
+              },
+            });
           }
-        }
-
-        // Check for sentence boundaries in buffer
-        let boundaryIndex = -1;
-        for (let i = 0; i < buffer.length; i++) {
-          if (
-            buffer[i] === '.' ||
-            buffer[i] === '?' ||
-            buffer[i] === '!' ||
-            buffer[i] === '\n'
-          ) {
-            boundaryIndex = i;
-            break;
+          if (text) {
+            parts.push({
+              text,
+            });
           }
-        }
 
-        if (boundaryIndex !== -1) {
-          const sentence = buffer.substring(0, boundaryIndex + 1).trim();
-          buffer = buffer.substring(boundaryIndex + 1);
+          const responsePayload = {
+            serverContent: {
+              modelTurn: {
+                parts,
+              },
+            },
+          };
 
-          if (sentence) {
-            await this.speakAndSend(client, session, sentence, detectedLang);
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify(responsePayload));
           }
-        }
-      }
-
-      // Send remaining text in buffer
-      if (session.isGenerating && buffer.trim()) {
-        await this.speakAndSend(client, session, buffer.trim(), detectedLang);
-      }
+        },
+        session,
+      );
     } catch (err) {
       this.logger.error('Error during query processing:', err);
       if (client.readyState === WebSocket.OPEN) {

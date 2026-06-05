@@ -5,14 +5,20 @@ export interface IAiService {
   transcribeAudio(wavBuffer: Buffer, model: string): Promise<string>;
   generateResponseStream(query: string, config: UserConfig): Promise<any>;
   textToSpeech(
-    text: string,
+    llmStream: any,
     voice: string,
-  ): Promise<{ base64: string; mimeType: string }>;
+    onAudioChunk: (base64Audio: string, text: string) => void,
+    session: any,
+  ): Promise<void>;
   getDefaultConfig(): UserConfig;
   parseSetupConfig(setupConfig: any): UserConfig;
   formatResponsePayload(
     base64Audio: string,
     mimeType: string,
     text: string,
+  ): any;
+  createSttStream(
+    onData: (data: any) => void,
+    onError: (err: any) => void,
   ): any;
 }

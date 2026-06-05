@@ -52,6 +52,22 @@ export class SharedAiService implements IAiService {
     return service.transcribeAudio(wavBuffer, model);
   }
 
+  public createSttStream(
+    onData: (data: any) => void,
+    onError: (err: any) => void,
+  ): any {
+    const defaultProvider =
+      this.configService.get<string>('AI_PROVIDER') || 'gemini';
+    const transcriptionProvider =
+      this.configService.get<string>('TRANSCRIPTION_PROVIDER') ||
+      defaultProvider;
+    const service = this.getProviderService(transcriptionProvider);
+    this.logger.log(
+      `Routing createSttStream to transcription provider: ${transcriptionProvider}`,
+    );
+    return service.createSttStream(onData, onError);
+  }
+
   public async generateResponseStream(
     query: string,
     config: UserConfig,
@@ -66,16 +82,20 @@ export class SharedAiService implements IAiService {
   }
 
   public async textToSpeech(
-    text: string,
+    llmStream: any,
     voice: string,
-  ): Promise<{ base64: string; mimeType: string }> {
+    onAudioChunk: (base64Audio: string, text: string) => void,
+    session: any,
+  ): Promise<void> {
     const defaultProvider =
       this.configService.get<string>('AI_PROVIDER') || 'gemini';
     const ttsProvider =
       this.configService.get<string>('TTS_PROVIDER') || defaultProvider;
     const service = this.getProviderService(ttsProvider);
-    this.logger.log(`Routing textToSpeech to TTS provider: ${ttsProvider}`);
-    return service.textToSpeech(text, voice);
+    this.logger.log(
+      `Routing textToSpeech stream to TTS provider: ${ttsProvider}`,
+    );
+    return service.textToSpeech(llmStream, voice, onAudioChunk, session);
   }
 
   public getDefaultConfig(): UserConfig {

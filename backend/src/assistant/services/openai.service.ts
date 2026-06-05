@@ -21,6 +21,15 @@ export class OpenAiService implements IAiService {
     return 'This is a stub transcription from OpenAI Whisper.';
   }
 
+  public createSttStream(
+    onData: (data: any) => void,
+    onError: (err: any) => void,
+  ): any {
+    this.logger.log('createSttStream with OpenAI (stub)');
+    const { PassThrough } = require('stream');
+    return new PassThrough({ objectMode: true });
+  }
+
   public async generateResponseStream(
     query: string,
     config: UserConfig,
@@ -43,19 +52,46 @@ export class OpenAiService implements IAiService {
   }
 
   public async textToSpeech(
-    text: string,
+    llmStream: any,
     voice: string,
-  ): Promise<{ base64: string; mimeType: string }> {
-    this.logger.log(
-      `Synthesizing TTS with OpenAI TTS (stub) - text: "${text}", voice: "${voice}"`,
-    );
-    // Return a dummy base64 audio chunk
-    const dummyBase64 =
-      'UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAAA';
-    return {
-      base64: dummyBase64,
-      mimeType: 'audio/mp3',
-    };
+    onAudioChunk: (base64Audio: string, text: string) => void,
+    session: any,
+  ): Promise<void> {
+    this.logger.log(`textToSpeech streaming stub (OpenAI)`);
+    let sentenceBuffer = '';
+    for await (const chunk of llmStream) {
+      if (!session.isGenerating) break;
+      const chunkText = chunk.text || '';
+      sentenceBuffer += chunkText;
+
+      let boundaryIndex = -1;
+      for (let i = 0; i < sentenceBuffer.length; i++) {
+        if (
+          sentenceBuffer[i] === '.' ||
+          sentenceBuffer[i] === '?' ||
+          sentenceBuffer[i] === '!'
+        ) {
+          boundaryIndex = i;
+          break;
+        }
+      }
+      if (boundaryIndex !== -1) {
+        const sentence = sentenceBuffer.substring(0, boundaryIndex + 1).trim();
+        sentenceBuffer = sentenceBuffer.substring(boundaryIndex + 1);
+        if (sentence) {
+          onAudioChunk('', sentence + ' ');
+          const dummyBase64 =
+            'UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAAA';
+          onAudioChunk(dummyBase64, '');
+        }
+      }
+    }
+    if (session.isGenerating && sentenceBuffer.trim()) {
+      onAudioChunk('', sentenceBuffer.trim() + ' ');
+      const dummyBase64 =
+        'UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAAA';
+      onAudioChunk(dummyBase64, '');
+    }
   }
 
   public getDefaultConfig(): UserConfig {

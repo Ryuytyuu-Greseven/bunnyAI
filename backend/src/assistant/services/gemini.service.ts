@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenAI } from '@google/genai';
 import { v2 } from '@google-cloud/speech';
+import { TextToSpeechClient } from '@google-cloud/text-to-speech';
 import { UserConfig } from '../types/assistant.types';
 import { IAiService } from '../interfaces/ai.interface';
 
@@ -10,6 +11,8 @@ export class GeminiService implements IAiService {
   private readonly logger = new Logger(GeminiService.name);
   private genAi: GoogleGenAI;
   private readonly apiKey: string | undefined;
+  private readonly speechClient: v2.SpeechClient;
+  private readonly ttsClient: TextToSpeechClient;
 
   constructor(private configService: ConfigService) {
     this.apiKey = this.configService.get<string>('GEMINI_API_KEY');
@@ -17,6 +20,25 @@ export class GeminiService implements IAiService {
       vertexai: true,
       apiKey: this.apiKey,
     });
+    const location =
+      this.configService.get<string>('GOOGLE_CLOUD_LOCATION_IN') || 'global';
+    this.speechClient = new v2.SpeechClient({
+      apiEndpoint: `${location}-speech.googleapis.com`,
+    });
+
+    this.speechClient
+      .initialize()
+      .then(() => {
+        this.logger.log('Initiated');
+      })
+      .catch((error) => {
+        this.logger.error(
+          'Exception with initialising the speechClient',
+          error,
+        );
+      });
+
+    this.ttsClient = new TextToSpeechClient();
   }
 
   public hasValidApiKey(): boolean {
@@ -34,23 +56,20 @@ export class GeminiService implements IAiService {
     const startTime = Date.now();
     const projectId = this.configService.get<string>('GOOGLE_CLOUD_PROJECT');
     const location = this.configService.get<string>('GOOGLE_CLOUD_LOCATION_IN');
-    const recognizerId =
-      this.configService.get<string>('GOOGLE_CLOUD_STT_RECOGNIZER_ID');
+    const recognizerId = this.configService.get<string>(
+      'GOOGLE_CLOUD_STT_RECOGNIZER_ID',
+    );
 
     const recognizerPath = `projects/${projectId}/locations/${location}/recognizers/${recognizerId}`;
 
-
     try {
-      const speechClient = new v2.SpeechClient({ apiEndpoint: `${location}-speech.googleapis.com` });
+      const speechClient = this.speechClient;
       const base64Data = wavBuffer.toString('base64');
       const request = {
         recognizer: recognizerPath,
         config: {
           languageCodes: ['en-US'],
           model: 'chirp_3',
-          features: {
-            enableWordTimeOffsets: true,
-          },
         },
         interimResults: true,
         content: base64Data,
@@ -79,6 +98,81 @@ export class GeminiService implements IAiService {
       );
       throw err;
     }
+  }
+
+  public createSttStream(
+    onData: (data: any) => void,
+    onError: (err: any) => void,
+  ): any {
+    const projectId = this.configService.get<string>('GOOGLE_CLOUD_PROJECT');
+    const location =
+      this.configService.get<string>('GOOGLE_CLOUD_LOCATION_IN') || 'global';
+    const recognizerId = this.configService.get<string>(
+      'GOOGLE_CLOUD_STT_RECOGNIZER_ID',
+    );
+    const recognizerPath = `projects/${projectId}/locations/${location}/recognizers/${recognizerId}`;
+
+    this.logger.log(
+      `Starting real-time streaming recognize connection using recognizer: ${recognizerPath}`,
+    );
+    const stream = this.speechClient._streamingRecognize();
+
+    stream.on('finish', () => {
+      console.log('Google gRPC stream finish by Google Cloud.');
+    });
+
+    stream.addListener('data', (response) => {
+      this.logger.log('Response from stream session', response);
+      const result = response.results[0];
+      if (result && result.alternatives[0]) {
+        const transcript = result.alternatives[0].transcript;
+        const isFinal = result.isFinal;
+
+        // This is where you see the "Magic":
+        // Interim results (isFinal: false) show up in ~200ms
+        process.stdout.write(
+          `\rCurrent thought: ${transcript} ${isFinal ? '\n' : ''}`,
+        );
+
+        if (isFinal) {
+          onData(transcript);
+        }
+      }
+    });
+
+    stream.on('error', onError);
+
+    stream.on('end', () => {
+      console.log('Google gRPC stream closed by Google Cloud.');
+    });
+
+    // Write initial configuration message
+    stream.write({
+      recognizer: recognizerPath,
+      interimResults: true,
+      streamingConfig: {
+        config: {
+          explicitDecodingConfig: {
+            // LINEAR16 is uncompressed, raw PCM audio (Standard mic data)
+            encoding: 'LINEAR16',
+            sampleRateHertz: 16000, // 16kHz is highly recommended for Chirp
+            audioChannelCount: 1, // Mono (1 channel) is standard for voice
+          },
+          // autoDecodingConfig: {},
+          languageCodes: ['en-US'],
+          model: 'chirp_3',
+          features: {
+            enableWordTimeOffsets: false,
+          },
+        },
+        streamingFeatures: {
+          interimResults: false,
+        },
+      },
+    });
+
+    this.logger.log('Stream status', stream.writable);
+    return stream;
   }
 
   public async geminiTranscribe(
@@ -165,7 +259,7 @@ CRITICAL RULES:
     return responseStream;
   }
 
-  public async textToSpeech(
+  public async geminiTextToSpeech(
     text: string,
     voice: string,
   ): Promise<{ base64: string; mimeType: string }> {
@@ -201,6 +295,136 @@ CRITICAL RULES:
     }
     this.logger.log('Text to speach generation done');
     return { base64, mimeType };
+  }
+
+  // chirp_3 voice
+  public async textToSpeech(
+    llmStream: any,
+    voice: string,
+    onAudioChunk: (base64Audio: string, text: string) => void,
+    session: any,
+  ): Promise<void> {
+    this.logger.log(
+      `Starting real-time LLM-to-Speech stream using Google Cloud TTS... ${voice}`,
+    );
+
+    // 1. Initialize the bidirectional gRPC stream
+    let ttsStream: any;
+    try {
+      ttsStream = this.ttsClient.streamingSynthesize();
+    } catch (err) {
+      this.logger.error(
+        `Failed to initiate streamingSynthesize: ${err.message || err}`,
+      );
+      // Fallback: collect the entire LLM stream and send to geminiTextToSpeech
+      let fullText = '';
+      for await (const chunk of llmStream) {
+        if (!session.isGenerating) break;
+        fullText += chunk.text || '';
+      }
+      if (session.isGenerating && fullText.trim()) {
+        const { base64 } = await this.geminiTextToSpeech(fullText.trim(), voice);
+        onAudioChunk(base64, fullText.trim() + ' ');
+      }
+      return;
+    }
+
+    // 2. Setup the output listener
+    ttsStream.on('data', (response: any) => {
+      if (response.audioContent && session.isGenerating) {
+        const base64Audio = Buffer.from(
+          response.audioContent as Uint8Array,
+        ).toString('base64');
+        onAudioChunk(base64Audio, '');
+      }
+    });
+
+    ttsStream.on('error', (err: any) => {
+      this.logger.error('TTS Streaming Error:', err);
+    });
+
+    ttsStream.on('end', () => {
+      this.logger.log('TTS Stream fully closed.');
+    });
+
+    // 3. Send initial configuration chunk
+    ttsStream.write({
+      streamingConfig: {
+        voice: {
+          languageCode: 'en-US',
+          name: `en-US-Chirp3-HD-${voice}`,
+        },
+        audioConfig: {
+          audioEncoding: 'LINEAR16', // Raw PCM audio
+          sampleRateHertz: 24000,
+        },
+      },
+    });
+
+    // 4. Consume incoming LLM stream
+    let sentenceBuffer = '';
+    let languageExtracted = false;
+
+    try {
+      for await (const chunk of llmStream) {
+        if (!session.isGenerating) break;
+
+        const chunkText = chunk.text || '';
+        sentenceBuffer += chunkText;
+
+        if (!languageExtracted) {
+          if (sentenceBuffer.includes(']:')) {
+            const prefixIndex = sentenceBuffer.indexOf(']:');
+            sentenceBuffer = sentenceBuffer.substring(prefixIndex + 2);
+            languageExtracted = true;
+          } else if (sentenceBuffer.length > 20) {
+            languageExtracted = true;
+          }
+        }
+
+        // Sentence detection
+        let boundaryIndex = -1;
+        for (let i = 0; i < sentenceBuffer.length; i++) {
+          if (
+            sentenceBuffer[i] === '.' ||
+            sentenceBuffer[i] === '?' ||
+            sentenceBuffer[i] === '!' ||
+            sentenceBuffer[i] === '\n'
+          ) {
+            boundaryIndex = i;
+            break;
+          }
+        }
+
+        if (boundaryIndex !== -1) {
+          const sentence = sentenceBuffer
+            .substring(0, boundaryIndex + 1)
+            .trim();
+          sentenceBuffer = sentenceBuffer.substring(boundaryIndex + 1);
+
+          if (sentence) {
+            this.logger.log(
+              `Sending buffered sentence to Chirp 3: "${sentence}"`,
+            );
+            onAudioChunk('', sentence + ' ');
+            ttsStream.write({
+              input: { text: sentence },
+            });
+          }
+        }
+      }
+
+      if (session.isGenerating && sentenceBuffer.trim().length > 0) {
+        const sentence = sentenceBuffer.trim();
+        this.logger.log(`Sending remaining sentence to Chirp 3: "${sentence}"`);
+        onAudioChunk('', sentence + ' ');
+        ttsStream.write({ input: { text: sentence } });
+      }
+    } catch (err) {
+      this.logger.error('Error in LLM stream to TTS generation loop:', err);
+    } finally {
+      ttsStream.end();
+    }
   }
 
   public getDefaultConfig(): UserConfig {

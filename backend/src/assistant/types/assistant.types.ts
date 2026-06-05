@@ -15,4 +15,6 @@ export interface SessionState {
   isTranscribing: boolean;
   segmentIndex: number;
   queryQueue: string[];
+  sttStream?: any;
+  silenceTimeout?: NodeJS.Timeout | null;
 }
