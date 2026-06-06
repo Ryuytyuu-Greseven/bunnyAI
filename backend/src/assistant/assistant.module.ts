@@ -6,6 +6,7 @@ import { AssistantService } from './services/assistant.service';
 import { GeminiService } from './services/gemini.service';
 import { OpenAiService } from './services/openai.service';
 import { SharedAiService } from './services/shared-ai.service';
+import { AgentService } from './agents/agent.service';
 
 @Module({
   providers: [
@@ -16,6 +17,7 @@ import { SharedAiService } from './services/shared-ai.service';
     GeminiService,
     OpenAiService,
     SharedAiService,
+    AgentService,
   ],
   exports: [
     AssistantGateway,
@@ -25,6 +27,7 @@ import { SharedAiService } from './services/shared-ai.service';
     GeminiService,
     OpenAiService,
     SharedAiService,
+    AgentService,
   ],
 })
 export class AssistantModule {}

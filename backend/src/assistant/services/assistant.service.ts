@@ -2,14 +2,17 @@ import WebSocket from 'ws';
 import { Injectable, Logger } from '@nestjs/common';
 import { SharedAiService } from './shared-ai.service';
 import { SessionState } from '../types/assistant.types';
-import { pcmToWav } from '../helpers/audio.helper';
+import { AgentService } from '../agents/agent.service';
 
 @Injectable()
 export class AssistantService {
   private readonly logger = new Logger(AssistantService.name);
   private sessions = new Map<any, SessionState>();
 
-  constructor(private readonly sharedAiService: SharedAiService) { }
+  constructor(
+    private readonly sharedAiService: SharedAiService,
+    private readonly agentService: AgentService,
+  ) { }
 
   public initializeSession(client: any): void {
     this.logger.log('Client connected to WebSocket Gateway');
@@ -182,8 +185,8 @@ export class AssistantService {
       // Check if connection was closed or interrupted
       if (!session.isGenerating) return;
 
-      // Invoke LLM agent in stream mode
-      const responseStream = await this.sharedAiService.generateResponseStream(
+      // Invoke LangGraph agent in stream mode
+      const responseStream = await this.agentService.runAgent(
         queryText,
         session.config,
       );
