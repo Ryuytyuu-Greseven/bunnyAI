@@ -29,7 +29,7 @@ export class App implements AfterViewInit, OnDestroy {
   configForm = new FormGroup({
     model: new FormControl('models/gemini-2.0-flash-exp'),
     voice: new FormControl('Aoede'),
-    systemInstruction: new FormControl("You are Aether, a brilliant, friendly, and helpful real-time AI assistant. Respond conversationally, keep your responses concise, and adapt dynamically to the user's tone."),
+    systemInstruction: new FormControl("You are Lyre AI, a brilliant, friendly, and helpful real-time AI assistant. Respond conversationally, keep your responses concise, and adapt dynamically to the user's tone."),
   });
 
   constructor(private cdr: ChangeDetectorRef) { }
@@ -48,9 +48,8 @@ export class App implements AfterViewInit, OnDestroy {
   private logId = 0;
   private chatMessageId = 0;
 
-  // Visualizer Canvases, Logs container & Chat container
-  @ViewChild('micCanvas') micCanvasRef!: ElementRef<HTMLCanvasElement>;
-  @ViewChild('speakerCanvas') speakerCanvasRef!: ElementRef<HTMLCanvasElement>;
+  // Visualizer Canvas, Logs container & Chat container
+  @ViewChild('birdEyeCanvas') birdEyeCanvasRef!: ElementRef<HTMLCanvasElement>;
   @ViewChild('consoleLogs') consoleLogsRef!: ElementRef<HTMLDivElement>;
   @ViewChild('chatHistoryBody') chatHistoryBodyRef!: ElementRef<HTMLDivElement>;
 
@@ -70,13 +69,13 @@ export class App implements AfterViewInit, OnDestroy {
   // WebSocket Connection
   private socket: WebSocket | null = null;
 
-  // Canvas Animation Frame IDs
-  private micAnimationId: number | null = null;
-  private speakerAnimationId: number | null = null;
+  // Canvas Animation Frame ID
+  private birdEyeAnimationId: number | null = null;
 
   ngAfterViewInit() {
     this.log('Dashboard initialized. Awaiting connection...', 'info');
     this.resizeCanvases();
+    this.startBirdEyeDrawing();
   }
 
   ngOnDestroy() {
@@ -89,16 +88,8 @@ export class App implements AfterViewInit, OnDestroy {
   }
 
   private resizeCanvases() {
-    if (this.micCanvasRef?.nativeElement) {
-      const canvas = this.micCanvasRef.nativeElement;
-      const rect = canvas.parentElement?.getBoundingClientRect();
-      if (rect) {
-        canvas.width = rect.width;
-        canvas.height = rect.height;
-      }
-    }
-    if (this.speakerCanvasRef?.nativeElement) {
-      const canvas = this.speakerCanvasRef.nativeElement;
+    if (this.birdEyeCanvasRef?.nativeElement) {
+      const canvas = this.birdEyeCanvasRef.nativeElement;
       const rect = canvas.parentElement?.getBoundingClientRect();
       if (rect) {
         canvas.width = rect.width;
@@ -158,7 +149,7 @@ export class App implements AfterViewInit, OnDestroy {
     const instruction = this.configForm.value.systemInstruction || '';
 
     try {
-      this.log('Connecting to Aether WebSocket gateway...', 'info');
+      this.log('Connecting to Lyre AI WebSocket gateway...', 'info');
       this.updateStatus('connecting', 'Connecting...');
       this.isConnecting = true;
       this.configForm.disable();
@@ -366,8 +357,7 @@ export class App implements AfterViewInit, OnDestroy {
 
     this.log('Microphone input initialized (16kHz mono).', 'info');
 
-    // Render waveform animation loop
-    this.startDrawing(this.micAnalyser, this.micCanvasRef.nativeElement, '#8b5cf6', () => this.isMicIdle);
+    // Drawing is handled by startBirdEyeDrawing animation loop
   }
 
   // Initialize Speaker Output (24kHz playback context)
@@ -382,8 +372,7 @@ export class App implements AfterViewInit, OnDestroy {
 
     this.log('Speaker output initialized.', 'info');
 
-    // Render waveform animation loop
-    this.startDrawing(this.playbackAnalyser, this.speakerCanvasRef.nativeElement, '#06b6d4', () => this.isSpeakerIdle);
+    // Drawing is handled by startBirdEyeDrawing animation loop
   }
 
   private async processPlaybackQueue() {
@@ -528,13 +517,9 @@ export class App implements AfterViewInit, OnDestroy {
     this.stopPlaybackQueue();
 
     // Cancel animations
-    if (this.micAnimationId !== null) {
-      cancelAnimationFrame(this.micAnimationId);
-      this.micAnimationId = null;
-    }
-    if (this.speakerAnimationId !== null) {
-      cancelAnimationFrame(this.speakerAnimationId);
-      this.speakerAnimationId = null;
+    if (this.birdEyeAnimationId !== null) {
+      cancelAnimationFrame(this.birdEyeAnimationId);
+      this.birdEyeAnimationId = null;
     }
 
     this.workletNode = null;
@@ -581,64 +566,224 @@ export class App implements AfterViewInit, OnDestroy {
     return (maxVal - 128) > 4; // Threshold to define activity
   }
 
-  // Draw loop scheduler
-  private startDrawing(analyser: AnalyserNode | null, canvas: HTMLCanvasElement, color: string, isIdleFn: () => boolean) {
+  // Combined dynamic dual bird-eye style circular visualizer
+  private startBirdEyeDrawing() {
+    if (!this.birdEyeCanvasRef?.nativeElement) return;
+    const canvas = this.birdEyeCanvasRef.nativeElement;
     const ctx = canvas.getContext('2d')!;
-    const bufferLength = analyser ? analyser.frequencyBinCount : 0;
-    const dataArray = new Uint8Array(bufferLength);
+
+    let angleOffset = 0;
 
     const draw = () => {
-      const frameId = requestAnimationFrame(draw);
-      if (color === '#8b5cf6') {
-        this.micAnimationId = frameId;
-      } else {
-        this.speakerAnimationId = frameId;
-      }
+      this.birdEyeAnimationId = requestAnimationFrame(draw);
 
       const width = canvas.width;
       const height = canvas.height;
+      const centerX = width / 2;
+      const centerY = height / 2;
 
-      // Deep dark visualizer background
-      ctx.fillStyle = 'rgba(10, 10, 20, 0.4)';
+      // Clean screen with deep Termux black
+      ctx.fillStyle = '#050505';
       ctx.fillRect(0, 0, width, height);
 
-      if (!analyser || isIdleFn()) {
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+      // Faint terminal grid pattern (vibe element)
+      ctx.strokeStyle = 'rgba(255, 204, 0, 0.03)';
+      ctx.lineWidth = 1;
+      const gridSize = 25;
+      for (let x = 0; x < width; x += gridSize) {
         ctx.beginPath();
-        ctx.moveTo(0, height / 2);
-        ctx.lineTo(width, height / 2);
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, height);
         ctx.stroke();
-        return;
+      }
+      for (let y = 0; y < height; y += gridSize) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(width, y);
+        ctx.stroke();
       }
 
-      analyser.getByteTimeDomainData(dataArray);
+      // Base radius calculation for dual eyes (widened more)
+      const baseRadius = Math.min(width, height) * 0.18;
+      const eyeOuterRadius = baseRadius * 1.37; // Maximum radius of ticks boundary
+      const eyeSpacing = eyeOuterRadius + 25;    // Symmetrical spacing ensuring exactly 50px gap between outer rings
+      const eyeOffsetY = 0;                      // Centered vertically since mouth is removed
 
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = color;
-      ctx.shadowBlur = 10;
-      ctx.shadowColor = color;
-      ctx.beginPath();
+      // Extract Mic Audio Data if active
+      let micActive = false;
+      const micBufferLength = this.micAnalyser ? this.micAnalyser.frequencyBinCount : 128;
+      const micDataArray = new Uint8Array(micBufferLength);
+      if (this.micAnalyser && !this.isMicIdle && !this.isMuted) {
+        this.micAnalyser.getByteTimeDomainData(micDataArray);
+        micActive = true;
+      }
 
-      const sliceWidth = width / bufferLength;
-      let x = 0;
+      // Extract Speaker Audio Data if active
+      let speakerActive = false;
+      const speakerBufferLength = this.playbackAnalyser ? this.playbackAnalyser.frequencyBinCount : 128;
+      const speakerDataArray = new Uint8Array(speakerBufferLength);
+      if (this.playbackAnalyser && !this.isSpeakerIdle) {
+        this.playbackAnalyser.getByteTimeDomainData(speakerDataArray);
+        speakerActive = true;
+      }
 
-      for (let i = 0; i < bufferLength; i++) {
-        const v = dataArray[i] / 128.0;
-        const y = (v * height) / 2;
+      // 1. Calculate Speech Eyelid ScaleY (Blinking - Widen more)
+      let scaleY = 1.0;
+      if (micActive) {
+        // Talking/speaking flutter: stays wider (minimum 0.55 instead of 0.25)
+        scaleY = 0.55 + Math.abs(Math.sin(Date.now() * 0.025)) * 0.45;
+      } else {
+        // Natural blinks (once every 4 seconds, lasting 150ms)
+        const cycleTime = Date.now() % 4000;
+        if (cycleTime > 3850) {
+          const progress = (cycleTime - 3850) / 150; // 0 to 1
+          scaleY = Math.abs(Math.sin(progress * Math.PI)); // dip to 0 and back
+        }
+      }
 
-        if (i === 0) {
-          ctx.moveTo(x, y);
-        } else {
-          ctx.lineTo(x, y);
+      // 2. Calculate Pupil orbital Offset (Revolving when assistant is speaking)
+      let pupilOffsetX = 0;
+      let pupilOffsetY = 0;
+      if (speakerActive) {
+        const orbitAngle = Date.now() * 0.015;
+        const orbitRadius = baseRadius * 0.15;
+        pupilOffsetX = Math.cos(orbitAngle) * orbitRadius;
+        pupilOffsetY = Math.sin(orbitAngle) * orbitRadius;
+      }
+
+      // Rotate speed increases when Lyre AI is speaking (revolving outer rings)
+      const rotationSpeed = speakerActive ? 0.045 : 0.003;
+      angleOffset += rotationSpeed;
+
+      // 3. Helper to draw a single eye
+      const drawSingleEye = (eyeX: number, eyeY: number) => {
+        ctx.save();
+        ctx.translate(eyeX, eyeY);
+
+        // Apply scaleY (eyelids/blinking)
+        ctx.scale(1, scaleY);
+
+        // Eyeball outer ring
+        ctx.strokeStyle = speakerActive ? 'rgba(255, 204, 0, 0.4)' : 'rgba(255, 204, 0, 0.15)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(0, 0, baseRadius * 1.15, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Crosshairs scope
+        ctx.strokeStyle = 'rgba(255, 204, 0, 0.04)';
+        ctx.beginPath();
+        ctx.moveTo(-baseRadius * 1.3, 0);
+        ctx.lineTo(baseRadius * 1.3, 0);
+        ctx.moveTo(0, -baseRadius * 1.3);
+        ctx.lineTo(0, baseRadius * 1.3);
+        ctx.stroke();
+
+        // Draw Iris (Mic soundwave ripples around the circle)
+        let rmsMic = 0;
+        if (micActive) {
+          let sum = 0;
+          for (let i = 0; i < micBufferLength; i++) {
+            const val = (micDataArray[i] - 128) / 128.0;
+            sum += val * val;
+          }
+          rmsMic = Math.sqrt(sum / micBufferLength);
         }
 
-        x += sliceWidth;
-      }
+        const irisRadius = baseRadius + (micActive ? rmsMic * 90 : 0);
 
-      ctx.lineTo(width, height / 2);
-      ctx.stroke();
-      ctx.shadowBlur = 0;
+        ctx.beginPath();
+        const numPoints = 90;
+        for (let i = 0; i < numPoints; i++) {
+          const angle = (i / numPoints) * Math.PI * 2 + angleOffset;
+          let offset = 0;
+          if (micActive) {
+            const dataIdx = Math.floor((i / numPoints) * micBufferLength);
+            offset = ((micDataArray[dataIdx] - 128) / 128.0) * 40;
+          } else {
+            offset = Math.sin(i * 0.15 + Date.now() * 0.003) * 2;
+          }
+
+          const r = irisRadius + offset;
+          const x = Math.cos(angle) * r;
+          const y = Math.sin(angle) * r;
+
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+        ctx.strokeStyle = micActive ? '#ffcc00' : 'rgba(255, 204, 0, 0.35)';
+        ctx.lineWidth = micActive ? 3.5 : 1.5;
+        if (micActive) {
+          ctx.shadowColor = '#ffcc00';
+          ctx.shadowBlur = 15;
+        }
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+
+        // Draw Pupil (Speaker audio pulses in the center, revolves inside sockets)
+        let rmsSpeaker = 0;
+        if (speakerActive) {
+          let sum = 0;
+          for (let i = 0; i < speakerBufferLength; i++) {
+            const val = (speakerDataArray[i] - 128) / 128.0;
+            sum += val * val;
+          }
+          rmsSpeaker = Math.sqrt(sum / speakerBufferLength);
+        }
+
+        const pupilBaseRadius = baseRadius * 0.45;
+        const pupilPulse = speakerActive ? rmsSpeaker * 95 : 0;
+        const idlePulse = !speakerActive ? Math.sin(Date.now() / 450) * 2 : 0;
+        const pupilRadius = Math.max(10, pupilBaseRadius + pupilPulse + idlePulse);
+
+        // Translate to pupil orbital offset
+        ctx.save();
+        ctx.translate(pupilOffsetX, pupilOffsetY);
+
+        ctx.beginPath();
+        ctx.arc(0, 0, pupilRadius, 0, Math.PI * 2);
+        ctx.fillStyle = '#060606';
+        ctx.fill();
+
+        ctx.strokeStyle = speakerActive ? '#ffff00' : 'rgba(255, 204, 0, 0.5)';
+        ctx.lineWidth = speakerActive ? 4.5 : 2;
+        ctx.shadowColor = '#ffcc00';
+        ctx.shadowBlur = speakerActive ? 25 : 6;
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+
+        // Core center dot
+        ctx.beginPath();
+        ctx.arc(0, 0, 4, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffcc00';
+        ctx.fill();
+
+        ctx.restore(); // Restore to eyeball center
+
+        // Rotating cyber-scope ticks
+        ctx.strokeStyle = speakerActive ? 'rgba(255, 255, 0, 0.3)' : 'rgba(255, 204, 0, 0.15)';
+        ctx.lineWidth = 2;
+        const tickCount = 8;
+        const tickSpeedFactor = speakerActive ? 2.5 : 1.0;
+        for (let i = 0; i < tickCount; i++) {
+          const tickAngle = (i / tickCount) * Math.PI * 2 - angleOffset * tickSpeedFactor;
+          const xStart = Math.cos(tickAngle) * (baseRadius * 1.25);
+          const yStart = Math.sin(tickAngle) * (baseRadius * 1.25);
+          const xEnd = Math.cos(tickAngle) * (baseRadius * 1.35);
+          const yEnd = Math.sin(tickAngle) * (baseRadius * 1.35);
+          ctx.beginPath();
+          ctx.moveTo(xStart, yStart);
+          ctx.lineTo(xEnd, yEnd);
+          ctx.stroke();
+        }
+
+        ctx.restore(); // Restore to canvas origin
+      };
+
+      // 4. Draw Left Eye and Right Eye (Centered vertically)
+      drawSingleEye(centerX - eyeSpacing, centerY - eyeOffsetY);
+      drawSingleEye(centerX + eyeSpacing, centerY - eyeOffsetY);
     };
 
     draw();

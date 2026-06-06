@@ -216,7 +216,7 @@ export class GeminiService implements IAiService {
     config: UserConfig,
   ): Promise<any> {
     const clientData = `
-CLIENT: Oracle HCM Support Assistant (Aether)
+CLIENT: Oracle HCM Support Assistant (Lyre AI)
 SCOPE: Help employees and HR administrators with Oracle HCM SaaS product inquiries.
 FAQ/KNOWLEDGE BASE:
 1. How to apply for leave?

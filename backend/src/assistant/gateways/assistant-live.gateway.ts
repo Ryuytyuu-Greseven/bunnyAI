@@ -68,7 +68,7 @@ export class AssistantLiveGateway
           // Extract and prepare setup parameters
           const clientInstruction =
             msg.setup.systemInstruction?.parts?.[0]?.text ||
-            'You are Aether, a brilliant, friendly, and helpful real-time AI assistant.';
+            'You are Lyre AI, a brilliant, friendly, and helpful real-time AI assistant.';
           const voiceName =
             msg.setup.generationConfig?.speechConfig?.voiceConfig
               ?.prebuiltVoiceConfig?.voiceName || 'Aoede';

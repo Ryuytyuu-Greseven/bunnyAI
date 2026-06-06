@@ -8,7 +8,7 @@
     <div class="logo-area">
       <div class="pulse-ring"></div>
       <span class="logo-dot"></span>
-      <h1>AETHER</h1>
+      <h1>LYRE AI</h1>
     </div>
     <p class="tagline">Multimodal Real-Time AI Voice Assistant</p>
   </header>
@@ -17,7 +17,7 @@
     <!-- Left Config Column -->
     <form [formGroup]="configForm" class="card config-card">
       <h2 class="card-title">Session Configuration</h2>
-      
+
       <div class="input-group">
         <label for="model-select">Live Model</label>
         <select id="model-select" formControlName="model">
@@ -40,7 +40,8 @@
 
       <div class="input-group">
         <label for="system-instruction">System Instruction / Persona</label>
-        <textarea id="system-instruction" formControlName="systemInstruction" placeholder="Define the AI's behavior, role, or background..."></textarea>
+        <textarea id="system-instruction" formControlName="systemInstruction"
+          placeholder="Define the AI's behavior, role, or background..."></textarea>
       </div>
 
       <div class="button-row">
@@ -58,68 +59,26 @@
       </div>
     </form>
 
-    <!-- Right Visualizer & Output Column -->
-    <section class="visualizer-container">
+    <!-- Middle Column: Visualizer & System Logs -->
+    <div class="middle-column">
+      <!-- Voice Visualizer Card -->
       <div class="card visualizer-card">
         <h2 class="card-title">Voice Visualizer</h2>
-        
-        <div class="waveforms-grid">
-          <!-- User Microphone Waveform -->
-          <div class="waveform-block">
-            <div class="waveform-header">
-              <span class="mic-icon">🎤</span>
-              <h3>Your Voice (Input)</h3>
-            </div>
-            <div class="canvas-container">
-              <canvas #micCanvas></canvas>
-              <div class="idle-text" [style.opacity]="isMicIdle ? '1' : '0'">{{ isMuted ? 'Microphone Muted' : 'Microphone Idle' }}</div>
-            </div>
-          </div>
 
-          <!-- Assistant Waveform -->
-          <div class="waveform-block">
-            <div class="waveform-header">
-              <span class="speaker-icon">🔊</span>
-              <h3>Aether's Voice (Output)</h3>
-            </div>
-            <div class="canvas-container">
-              <canvas #speakerCanvas></canvas>
-              <div class="idle-text" [style.opacity]="isSpeakerIdle ? '1' : '0'">Aether Silent</div>
+        <div class="bird-eye-wrapper">
+          <div class="canvas-container bird-eye-container">
+            <canvas #birdEyeCanvas></canvas>
+            <div class="idle-text" [style.opacity]="isMicIdle && isSpeakerIdle ? '1' : '0'">
+              {{ isMuted ? 'System Standby (Muted)' : 'System Standby' }}
             </div>
           </div>
         </div>
 
         <div class="visualizer-controls">
           <button id="mute-btn" class="btn btn-secondary" [disabled]="!isConnected" (click)="toggleMute()">
-            <span id="mute-icon">{{ isMuted ? '🔇' : '🎤' }}</span> 
+            <span id="mute-icon">{{ isMuted ? '🔇' : '🎤' }}</span>
             <span id="mute-text">{{ isMuted ? 'Unmute Mic' : 'Mute Mic' }}</span>
           </button>
-        </div>
-      </div>
-
-      <!-- Live Conversation Transcript Card -->
-      <div class="card chat-card">
-        <h2 class="card-title">Live Conversation Transcript</h2>
-        <div class="chat-body" #chatHistoryBody>
-          @if (chatMessages.length === 0) {
-            <div class="chat-placeholder">
-              <span class="chat-placeholder-icon">💬</span>
-              <p>No conversation yet. Connect and start speaking to see the live transcript!</p>
-            </div>
-          }
-          
-          @for (msg of chatMessages; track msg.id) {
-            <div class="chat-message" [ngClass]="{'msg-user': msg.sender === 'user', 'msg-assistant': msg.sender === 'assistant'}">
-              <div class="message-bubble">
-                <div class="message-sender">
-                  <span class="sender-avatar">{{ msg.sender === 'user' ? '👤' : '🤖' }}</span>
-                  <span class="sender-name">{{ msg.sender === 'user' ? 'You' : 'Aether' }}</span>
-                </div>
-                <p class="message-text">{{ msg.text }}</p>
-                <span class="message-time">{{ msg.time }}</span>
-              </div>
-            </div>
-          }
         </div>
       </div>
 
@@ -131,14 +90,41 @@
         </div>
         <div class="console-body" #consoleLogs>
           @for (log of logs; track log.id) {
-            <div class="log-entry" [ngClass]="log.typeClass">[{{ log.time }}] {{ log.message }}</div>
+          <div class="log-entry" [ngClass]="log.typeClass">[{{ log.time }}] {{ log.message }}</div>
           }
         </div>
       </div>
-    </section>
+    </div>
+
+    <!-- Right Column: Live Conversation Transcript -->
+    <div class="card chat-card">
+      <h2 class="card-title">Live Transcript</h2>
+      <div class="chat-body" #chatHistoryBody>
+        @if (chatMessages.length === 0) {
+        <div class="chat-placeholder">
+          <span class="chat-placeholder-icon">💬</span>
+          <p>No conversation yet. Connect and start speaking to see the live transcript!</p>
+        </div>
+        }
+
+        @for (msg of chatMessages; track msg.id) {
+        <div class="chat-message"
+          [ngClass]="{'msg-user': msg.sender === 'user', 'msg-assistant': msg.sender === 'assistant'}">
+          <div class="message-bubble">
+            <div class="message-sender">
+              <span class="sender-avatar">{{ msg.sender === 'user' ? '👤' : '🤖' }}</span>
+              <span class="sender-name">{{ msg.sender === 'user' ? 'You' : 'Lyre AI' }}</span>
+            </div>
+            <p class="message-text">{{ msg.text }}</p>
+            <span class="message-time">{{ msg.time }}</span>
+          </div>
+        </div>
+        }
+      </div>
+    </div>
   </div>
 </main>
 
 <footer class="app-footer">
-  <p>Powered by Gemini Multimodal Live API & NestJS WebSockets</p>
+  <p>Powered by Supersoul Life, Inc</p>
 </footer>
