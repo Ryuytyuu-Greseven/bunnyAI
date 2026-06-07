@@ -15,6 +15,11 @@ export const AgentStateAnnotation = Annotation.Root({
   }),
   userQuery: Annotation<string>(),
   systemInstruction: Annotation<string>(),
+  business: Annotation<string>(),
+  sessionId: Annotation<string>(),
+  customerId: Annotation<string>(),
+  customerPhNo: Annotation<string>(),
+  extractedJson: Annotation<object>(),
 });
 
 export type AgentState = typeof AgentStateAnnotation.State;

@@ -26,6 +26,10 @@ export class AgentService {
           messages: [new HumanMessage(query)],
           userQuery: query,
           systemInstruction: config.systemInstruction,
+          business: config.business || '',
+          sessionId: '',
+          customerId: '',
+          customerPhNo: '',
         },
         {
           configurable: {

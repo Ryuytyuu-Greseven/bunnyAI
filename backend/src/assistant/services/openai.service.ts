@@ -101,6 +101,7 @@ export class OpenAiService implements IAiService {
       voice: 'alloy',
       systemInstruction:
         'You are Madhuri, a brilliant, friendly, and helpful real-time AI assistant.',
+      business: 'Customer Success',
     };
   }
 
@@ -109,6 +110,7 @@ export class OpenAiService implements IAiService {
       model: setupConfig.model || 'gpt-4o',
       systemInstruction: setupConfig.systemInstruction || '',
       voice: setupConfig.voice || 'alloy',
+      business: setupConfig.business || 'Customer Success',
     };
   }
 

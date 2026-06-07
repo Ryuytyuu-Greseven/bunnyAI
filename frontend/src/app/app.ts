@@ -30,6 +30,7 @@ export class App implements AfterViewInit, OnDestroy {
     model: new FormControl('models/gemini-2.0-flash-exp'),
     voice: new FormControl('Aoede'),
     systemInstruction: new FormControl("You are Lyre AI, a brilliant, friendly, and helpful real-time AI assistant. Respond conversationally, keep your responses concise, and adapt dynamically to the user's tone."),
+    business: new FormControl('Customer Success'),
   });
 
   constructor(private cdr: ChangeDetectorRef) { }
@@ -147,6 +148,7 @@ export class App implements AfterViewInit, OnDestroy {
     const model = this.configForm.value.model || 'models/gemini-2.0-flash-exp';
     const voice = this.configForm.value.voice || 'Aoede';
     const instruction = this.configForm.value.systemInstruction || '';
+    const business = this.configForm.value.business || 'Customer Success';
 
     try {
       this.log('Connecting to Lyre AI WebSocket gateway...', 'info');
@@ -189,6 +191,7 @@ export class App implements AfterViewInit, OnDestroy {
                 },
               ],
             },
+            business: business,
           },
         };
 

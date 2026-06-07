@@ -19,6 +19,19 @@
       <h2 class="card-title">Session Configuration</h2>
 
       <div class="input-group">
+        <label for="business-select">Business Area</label>
+        <select id="business-select" formControlName="business">
+          <option value="Sales">Sales</option>
+          <option value="Insurance">Insurance</option>
+          <option value="Customer Support">Customer Support</option>
+          <option value="Customer Success">Customer Success</option>
+          <option value="Implementation">Implementation</option>
+          <option value="Alerting">Alerting</option>
+          <option value="Hiring">Hiring</option>
+        </select>
+      </div>
+
+      <div class="input-group">
         <label for="model-select">Live Model</label>
         <select id="model-select" formControlName="model">
           <option value="models/gemini-2.0-flash-exp">Gemini 2.0 Flash Live (Experimental)</option>

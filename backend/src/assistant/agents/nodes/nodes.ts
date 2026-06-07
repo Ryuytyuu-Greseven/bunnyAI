@@ -6,6 +6,8 @@ import { createAgent } from 'langchain';
 import { llmInstance } from '../llms/google.llm';
 import { Logger } from '@nestjs/common';
 import { MultiServerMCPClient } from "@langchain/mcp-adapters";
+import * as fs from 'fs/promises';
+import * as path from 'path';
 
 const client = new MultiServerMCPClient({
   mcpServers:
@@ -19,6 +21,36 @@ const client = new MultiServerMCPClient({
 })
 
 const logger = new Logger();
+
+async function loadBusinessPrompt(business: string): Promise<string> {
+  let promptFilename = 'customer_success.agent.md';
+  const normalized = business.trim().toLowerCase();
+  if (normalized === 'sales') {
+    promptFilename = 'sales.agent.md';
+  } else if (normalized === 'insurance') {
+    promptFilename = 'insurance.agent.md';
+  } else if (normalized === 'customer support') {
+    promptFilename = 'customer_support.agent.md';
+  } else if (normalized === 'customer success') {
+    promptFilename = 'customer_success.agent.md';
+  } else if (normalized === 'implementation') {
+    promptFilename = 'implementation.agent.md';
+  } else if (normalized === 'alerting') {
+    promptFilename = 'alerting.agent.md';
+  } else if (normalized === 'hiring') {
+    promptFilename = 'hiring_screening.agent.md';
+  }
+
+  try {
+    const promptsDir = path.join(__dirname, '..', 'prompts');
+    const promptFilePath = path.join(promptsDir, promptFilename);
+    return await fs.readFile(promptFilePath, 'utf-8');
+  } catch (e) {
+    console.error(`Failed to read prompt file ${promptFilename}:`, e);
+    return '';
+  }
+}
+
 export async function agentNode(state: AgentState, config?: RunnableConfig) {
   console.log('[Agent Node] Executing agent logic...');
   const messages = state.messages || [];
@@ -42,9 +74,17 @@ export async function agentNode(state: AgentState, config?: RunnableConfig) {
 
   try {
     const tools = await client.getTools();
+    const business = state.business || userConfig?.business || 'Customer Success';
+    // const rawSystemInstruction = state.systemInstruction || userConfig?.systemInstruction || '';
+
+    const businessPromptContent = await loadBusinessPrompt(business);
+
+    const businessInstruction = `You are representing the ${business} department. Your answers and tone should reflect this context.`;
+    const systemPrompt = `${businessInstruction}\n\n${businessPromptContent}`;
+
     const agent = createAgent({
       model: llmInstance,
-      systemPrompt: state.systemInstruction || userConfig?.systemInstruction || '',
+      systemPrompt: systemPrompt,
       tools: [getHrPolicyTool, getUserLeaveBalanceTool, ...tools],
     });
 

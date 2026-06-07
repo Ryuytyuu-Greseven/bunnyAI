@@ -2,6 +2,7 @@ export interface UserConfig {
   model: string;
   voice: string;
   systemInstruction: string;
+  business?: string;
 }
 
 export interface SessionState {

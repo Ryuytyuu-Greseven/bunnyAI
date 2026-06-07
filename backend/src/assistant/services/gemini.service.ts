@@ -427,6 +427,7 @@ CRITICAL RULES:
       voice: 'Aoede',
       systemInstruction:
         'You are Madhuri, a brilliant, friendly, and helpful real-time AI assistant.',
+      business: 'Customer Success',
     };
   }
 
@@ -437,6 +438,7 @@ CRITICAL RULES:
       voice:
         setupConfig.generationConfig?.speechConfig?.voiceConfig
           ?.prebuiltVoiceConfig?.voiceName || 'Aoede',
+      business: setupConfig.business || 'Customer Success',
     };
   }
 
