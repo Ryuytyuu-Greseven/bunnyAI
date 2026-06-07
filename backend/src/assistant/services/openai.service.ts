@@ -52,14 +52,15 @@ export class OpenAiService implements IAiService {
   }
 
   public async textToSpeech(
-    llmStream: any,
+    text: any,
     voice: string,
-    onAudioChunk: (base64Audio: string, text: string) => void,
+    onAudioChunk: (base64Audio: string, text: string, client: any) => void,
     session: any,
+    client: any
   ): Promise<void> {
     this.logger.log(`textToSpeech streaming stub (OpenAI)`);
     let sentenceBuffer = '';
-    for await (const chunk of llmStream) {
+    for await (const chunk of text) {
       if (!session.isGenerating) break;
       const chunkText = chunk.text || '';
       sentenceBuffer += chunkText;
@@ -79,18 +80,18 @@ export class OpenAiService implements IAiService {
         const sentence = sentenceBuffer.substring(0, boundaryIndex + 1).trim();
         sentenceBuffer = sentenceBuffer.substring(boundaryIndex + 1);
         if (sentence) {
-          onAudioChunk('', sentence + ' ');
+          onAudioChunk('', sentence + ' ', client);
           const dummyBase64 =
             'UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAAA';
-          onAudioChunk(dummyBase64, '');
+          onAudioChunk(dummyBase64, '', client);
         }
       }
     }
     if (session.isGenerating && sentenceBuffer.trim()) {
-      onAudioChunk('', sentenceBuffer.trim() + ' ');
+      onAudioChunk('', sentenceBuffer.trim() + ' ', client);
       const dummyBase64 =
         'UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAAA';
-      onAudioChunk(dummyBase64, '');
+      onAudioChunk(dummyBase64, '', client);
     }
   }
 

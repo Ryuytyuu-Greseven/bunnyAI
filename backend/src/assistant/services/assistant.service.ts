@@ -186,7 +186,7 @@ export class AssistantService {
       if (!session.isGenerating) return;
 
       // Invoke LangGraph agent in stream mode
-      const responseStream = await this.agentService.runAgent(
+      const responseStream = this.agentService.runAgent(
         queryText,
         session.config,
       );
@@ -194,37 +194,9 @@ export class AssistantService {
       await this.sharedAiService.textToSpeech(
         responseStream,
         session.config.voice,
-        (base64Audio: string, text: string) => {
-          if (!session.isGenerating) return;
-
-          const parts: any[] = [];
-          if (base64Audio) {
-            parts.push({
-              inlineData: {
-                mimeType: 'audio/l16', // LINEAR16 raw PCM
-                data: base64Audio,
-              },
-            });
-          }
-          if (text) {
-            parts.push({
-              text,
-            });
-          }
-
-          const responsePayload = {
-            serverContent: {
-              modelTurn: {
-                parts,
-              },
-            },
-          };
-
-          if (client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify(responsePayload));
-          }
-        },
+        this.onAudioChunk,
         session,
+        client
       );
     } catch (err) {
       this.logger.error('Error during query processing:', err);
@@ -238,5 +210,37 @@ export class AssistantService {
     } finally {
       this.processQueryQueue(client, session);
     }
+  }
+
+
+  // streaming audion & text to client
+  onAudioChunk(base64Audio: string, text: string, client: any) {
+    const parts: any[] = [];
+    if (base64Audio) {
+      parts.push({
+        inlineData: {
+          mimeType: 'audio/l16', // LINEAR16 raw PCM
+          data: base64Audio,
+        },
+      });
+    }
+    if (text) {
+      parts.push({
+        text,
+      });
+    }
+
+    const responsePayload = {
+      serverContent: {
+        modelTurn: {
+          parts,
+        },
+      },
+    };
+
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify(responsePayload));
+    }
+
   }
 }

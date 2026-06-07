@@ -13,7 +13,7 @@ export class SharedAiService implements IAiService {
     private readonly configService: ConfigService,
     private readonly geminiService: GeminiService,
     private readonly openAiService: OpenAiService,
-  ) {}
+  ) { }
 
   private getProviderService(providerName: string): IAiService {
     const provider = (providerName || '').toLowerCase().trim();
@@ -84,8 +84,9 @@ export class SharedAiService implements IAiService {
   public async textToSpeech(
     llmStream: any,
     voice: string,
-    onAudioChunk: (base64Audio: string, text: string) => void,
+    onAudioChunk: (base64Audio: string, text: string, client: any) => void,
     session: any,
+    client: any
   ): Promise<void> {
     const defaultProvider =
       this.configService.get<string>('AI_PROVIDER') || 'gemini';
@@ -95,7 +96,7 @@ export class SharedAiService implements IAiService {
     this.logger.log(
       `Routing textToSpeech stream to TTS provider: ${ttsProvider}`,
     );
-    return service.textToSpeech(llmStream, voice, onAudioChunk, session);
+    return service.textToSpeech(llmStream, voice, onAudioChunk, session, client);
   }
 
   public getDefaultConfig(): UserConfig {

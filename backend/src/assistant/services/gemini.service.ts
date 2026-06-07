@@ -301,8 +301,9 @@ CRITICAL RULES:
   public async textToSpeech(
     llmStream: any,
     voice: string,
-    onAudioChunk: (base64Audio: string, text: string) => void,
+    onAudioChunk: (base64Audio: string, text: string, client: any) => void,
     session: any,
+    client: any
   ): Promise<void> {
     this.logger.log(
       `Starting real-time LLM-to-Speech stream using Google Cloud TTS... ${voice}`,
@@ -310,64 +311,54 @@ CRITICAL RULES:
 
     // 1. Initialize the bidirectional gRPC stream
     let ttsStream: any;
-    try {
-      ttsStream = this.ttsClient.streamingSynthesize();
-    } catch (err) {
-      this.logger.error(
-        `Failed to initiate streamingSynthesize: ${err.message || err}`,
-      );
-      // Fallback: collect the entire LLM stream and send to geminiTextToSpeech
-      let fullText = '';
-      for await (const chunk of llmStream) {
-        if (!session.isGenerating) break;
-        fullText += chunk.text || '';
-      }
-      if (session.isGenerating && fullText.trim()) {
-        const { base64 } = await this.geminiTextToSpeech(fullText.trim(), voice);
-        onAudioChunk(base64, fullText.trim() + ' ');
-      }
-      return;
-    }
-
-    // 2. Setup the output listener
-    ttsStream.on('data', (response: any) => {
-      if (response.audioContent && session.isGenerating) {
-        const base64Audio = Buffer.from(
-          response.audioContent as Uint8Array,
-        ).toString('base64');
-        onAudioChunk(base64Audio, '');
-      }
-    });
-
-    ttsStream.on('error', (err: any) => {
-      this.logger.error('TTS Streaming Error:', err);
-    });
-
-    ttsStream.on('end', () => {
-      this.logger.log('TTS Stream fully closed.');
-    });
-
-    // 3. Send initial configuration chunk
-    ttsStream.write({
-      streamingConfig: {
-        voice: {
-          languageCode: 'en-US',
-          name: `en-US-Chirp3-HD-${voice}`,
-        },
-        audioConfig: {
-          audioEncoding: 'LINEAR16', // Raw PCM audio
-          sampleRateHertz: 24000,
-        },
-      },
-    });
-
     // 4. Consume incoming LLM stream
     let sentenceBuffer = '';
     let languageExtracted = false;
 
     try {
       for await (const chunk of llmStream) {
+
+        // Text to stream logic
+        if (!ttsStream) {
+          this.logger.log('Gemini STream in TTS started');
+          ttsStream = this.ttsClient.streamingSynthesize();
+
+          // 2. Setup the output listener
+          ttsStream.on('data', (response: any) => {
+            if (response.audioContent && session.isGenerating) {
+              const base64Audio = Buffer.from(
+                response.audioContent as Uint8Array,
+              ).toString('base64');
+              onAudioChunk(base64Audio, '', client);
+            }
+          });
+
+          ttsStream.on('error', (err: any) => {
+            this.logger.error('TTS Streaming Error:', err);
+            // ttsStream = this.speechClient.streamingRecognize();
+          });
+
+          ttsStream.on('end', () => {
+            this.logger.log('TTS Stream fully closed.');
+          });
+
+          // 3. Send initial configuration chunk
+          ttsStream.write({
+            streamingConfig: {
+              voice: {
+                languageCode: 'en-US',
+                name: `en-US-Chirp3-HD-${voice}`,
+              },
+              audioConfig: {
+                audioEncoding: 'LINEAR16', // Raw PCM audio
+                sampleRateHertz: 24000,
+              },
+            },
+          });
+        }
+
         if (!session.isGenerating) break;
+
 
         const chunkText = chunk.text || '';
         sentenceBuffer += chunkText;
@@ -406,10 +397,12 @@ CRITICAL RULES:
             this.logger.log(
               `Sending buffered sentence to Chirp 3: "${sentence}"`,
             );
-            onAudioChunk('', sentence + ' ');
-            ttsStream.write({
-              input: { text: sentence },
-            });
+            onAudioChunk('', sentence + ' ', client);
+            if (!ttsStream.destroyed) {
+              ttsStream.write({
+                input: { text: sentence },
+              });
+            }
           }
         }
       }
@@ -417,9 +410,10 @@ CRITICAL RULES:
       if (session.isGenerating && sentenceBuffer.trim().length > 0) {
         const sentence = sentenceBuffer.trim();
         this.logger.log(`Sending remaining sentence to Chirp 3: "${sentence}"`);
-        onAudioChunk('', sentence + ' ');
+        onAudioChunk('', sentence + ' ', client);
         ttsStream.write({ input: { text: sentence } });
       }
+
     } catch (err) {
       this.logger.error('Error in LLM stream to TTS generation loop:', err);
     } finally {

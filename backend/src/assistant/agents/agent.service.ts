@@ -8,7 +8,7 @@ import { UserConfig } from '../types/assistant.types';
 export class AgentService {
   private readonly logger = new Logger(AgentService.name);
 
-  constructor(private readonly sharedAiService: SharedAiService) {}
+  constructor(private readonly sharedAiService: SharedAiService) { }
 
   /**
    * Invokes the compiled LangGraph and streams the final message response chunk-by-chunk.
@@ -21,7 +21,7 @@ export class AgentService {
     this.logger.log(`Invoking agent LangGraph graph for query: "${query}"`);
 
     try {
-      const result = await agentGraph.invoke(
+      const result = await agentGraph.stream(
         {
           messages: [new HumanMessage(query)],
           userQuery: query,
@@ -35,20 +35,16 @@ export class AgentService {
         },
       );
 
-      const messages = result.messages || [];
-      const finalMsg = messages[messages.length - 1];
-      const responseText = finalMsg ? String(finalMsg.content) : '';
-
-      this.logger.log(`LangGraph execution complete. Final response: "${responseText}"`);
-
-      // Stream the response back word-by-word to simulate real-time LLM streaming
-      const words = responseText.split(' ');
-      for (let i = 0; i < words.length; i++) {
-        const isLast = i === words.length - 1;
-        yield { text: words[i] + (isLast ? '' : ' ') };
-        // Small delay to mimic real-time text delivery
-        await new Promise((resolve) => setTimeout(resolve, 40));
+      for await (const chunk of result) {
+        if (chunk.agent?.messages[0]) {
+          const token = chunk.agent.messages[0];
+          if (token !== undefined && token !== null) {
+            yield token;
+          }
+        }
       }
+
+      this.logger.log(`LangGraph execution complete.`);
     } catch (err) {
       this.logger.error('Error executing LangGraph agent:', err);
       yield { text: `[en]: I encountered an error running the LangGraph agent: ${err.message || err}` };

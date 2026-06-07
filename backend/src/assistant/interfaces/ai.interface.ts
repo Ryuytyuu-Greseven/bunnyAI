@@ -7,8 +7,9 @@ export interface IAiService {
   textToSpeech(
     llmStream: any,
     voice: string,
-    onAudioChunk: (base64Audio: string, text: string) => void,
+    onAudioChunk: (base64Audio: string, text: string, client: any) => void,
     session: any,
+    client: any
   ): Promise<void>;
   getDefaultConfig(): UserConfig;
   parseSetupConfig(setupConfig: any): UserConfig;

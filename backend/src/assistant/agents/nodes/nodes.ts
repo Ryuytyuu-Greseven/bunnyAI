@@ -2,7 +2,23 @@ import { AIMessage, BaseMessage, ToolMessage } from '@langchain/core/messages';
 import { RunnableConfig } from '@langchain/core/runnables';
 import { AgentState } from '../state/state';
 import { getHrPolicyTool, getUserLeaveBalanceTool } from '../tools/hr-tool';
+import { createAgent } from 'langchain';
+import { llmInstance } from '../llms/google.llm';
+import { Logger } from '@nestjs/common';
+import { MultiServerMCPClient } from "@langchain/mcp-adapters";
 
+const client = new MultiServerMCPClient({
+  mcpServers:
+  {
+    'weather-server': {
+      transport: 'sse',
+      url: "http://localhost:8000/mcp",
+      automaticSSEFallback: false,
+    }
+  }
+})
+
+const logger = new Logger();
 export async function agentNode(state: AgentState, config?: RunnableConfig) {
   console.log('[Agent Node] Executing agent logic...');
   const messages = state.messages || [];
@@ -13,91 +29,43 @@ export async function agentNode(state: AgentState, config?: RunnableConfig) {
 
   const hasToolRun = messages.some((m: BaseMessage) => m instanceof ToolMessage);
 
-  // If user is asking about leave balance and we haven't run the tool yet
-  if (
-    (term.includes('balance') || term.includes('how many leaves') || (term.includes('leave') && (term.includes('left') || term.includes('remaining') || term.includes('have')))) &&
-    !hasToolRun
-  ) {
-    console.log('[Agent Node] Decision: Invoking tool "getUserLeaveBalance"');
-    return {
-      messages: [
-        new AIMessage({
-          content: 'Let me check your leave balance.',
-          tool_calls: [
-            {
-              name: 'getUserLeaveBalance',
-              args: {},
-              id: 'call_leave_balance_id',
-              type: 'tool_call',
-            },
-          ],
-        }),
-      ],
-    };
-  }
-
-  // If user is asking about HR policy topics and we haven't run the tool yet
-  if (
-    (term.includes('leave') || term.includes('payroll') || term.includes('pay') || term.includes('benefit') || term.includes('holiday') || term.includes('hr') || term.includes('policy')) &&
-    !hasToolRun
-  ) {
-    console.log('[Agent Node] Decision: Invoking tool "getHrPolicy"');
-    return {
-      messages: [
-        new AIMessage({
-          content: 'Let me look up the HR policy guidelines.',
-          tool_calls: [
-            {
-              name: 'getHrPolicy',
-              args: { policyName: query },
-              id: 'call_hr_policy_id',
-              type: 'tool_call',
-            },
-          ],
-        }),
-      ],
-    };
-  }
-
   // Generate real agent response (using tool result context if tool has run)
   console.log('[Agent Node] Decision: Generating real LLM response...');
-  
-  const sharedAiService = config?.configurable?.sharedAiService;
+
+  // const sharedAiService = config?.configurable?.sharedAiService;
   const userConfig = config?.configurable?.userConfig;
 
-  if (!sharedAiService) {
-    console.warn('[Agent Node] SharedAiService not found in config.configurable. Falling back to static response.');
-    return {
-      messages: [
-        new AIMessage({
-          content: `[en]: Hello, I am Lyre AI. I received your request: "${query}". (Service Offline)`,
-        }),
-      ],
-    };
-  }
-
   let promptQuery = query;
-  if (hasToolRun) {
-    const toolMsg = messages.find((m: BaseMessage) => m instanceof ToolMessage) as ToolMessage;
-    const toolContent = toolMsg?.content || '';
-    promptQuery = `User Query: ${query}\n\nTool/Knowledge Source Output:\n${toolContent}\n\nPlease draft the final response to the user incorporating this tool result context according to the system rules (same language, language bracket prefix, etc.).`;
-  }
+  const toolMsg = messages.find((m: BaseMessage) => m instanceof ToolMessage) as ToolMessage;
+  const toolContent = toolMsg?.content || '';
+  promptQuery = `User Query: ${query}\n\nTool/Knowledge Source Output:\n${toolContent}\n\nPlease draft the final response to the user incorporating this tool result context according to the system rules (same language, language bracket prefix, etc.).`;
 
   try {
-    const responseStream = await sharedAiService.generateResponseStream(
-      promptQuery,
-      {
-        ...userConfig,
-        systemInstruction: state.systemInstruction || userConfig?.systemInstruction || '',
-      },
-    );
+    const tools = await client.getTools();
+    const agent = createAgent({
+      model: llmInstance,
+      systemPrompt: state.systemInstruction || userConfig?.systemInstruction || '',
+      tools: [getHrPolicyTool, getUserLeaveBalanceTool, ...tools],
+    });
+
+    const responseStream = await agent.stream({ messages: [{ role: 'human', content: promptQuery }] });
 
     let fullResponse = '';
     for await (const chunk of responseStream) {
-      fullResponse += chunk.text || '';
+      // console.log('Response stream', chunk);
+
+      if (chunk.model_request && chunk.model_request.messages) {
+        const message = chunk.model_request.messages[0];
+        // Check if the message contains streamable text content
+        if (message && message.content) {
+          fullResponse += message.content;
+        }
+      }
     }
 
+    // logger.log(`Full response: "${fullResponse}"`);
     return {
+      // messages: responseStream.messages,
       messages: [
         new AIMessage({
           content: fullResponse.trim(),
