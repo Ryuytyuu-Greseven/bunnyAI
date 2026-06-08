@@ -1,6 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { HumanMessage } from '@langchain/core/messages';
-import { agentGraph } from './graphs/graph';
+import {
+  agentGraph,
+  salesGraph,
+  insuranceGraph,
+  customerSupportGraph,
+  customerSuccessGraph,
+  implementationGraph,
+  alertingGraph,
+  hiringGraph,
+} from './graphs/graph';
 import { SharedAiService } from '../services/shared-ai.service';
 import { UserConfig } from '../types/assistant.types';
 
@@ -10,6 +19,28 @@ export class AgentService {
 
   constructor(private readonly sharedAiService: SharedAiService) { }
 
+  private getGraph(business?: string) {
+    const normalized = (business || '').trim().toLowerCase();
+    switch (normalized) {
+      case 'sales':
+        return salesGraph;
+      case 'insurance':
+        return insuranceGraph;
+      case 'customer support':
+        return customerSupportGraph;
+      case 'customer success':
+        return customerSuccessGraph;
+      case 'implementation':
+        return implementationGraph;
+      case 'alerting':
+        return alertingGraph;
+      case 'hiring':
+        return hiringGraph;
+      default:
+        return agentGraph;
+    }
+  }
+
   /**
    * Invokes the compiled LangGraph and streams the final message response chunk-by-chunk.
    * By yielding chunks with a .text property, it acts as a drop-in replacement for Gemini's responseStream.
@@ -18,10 +49,11 @@ export class AgentService {
     query: string,
     config: UserConfig,
   ): AsyncGenerator<{ text: string }> {
-    this.logger.log(`Invoking agent LangGraph graph for query: "${query}"`);
+    this.logger.log(`Invoking agent LangGraph graph for query: "${query}" (Business: ${config.business})`);
 
     try {
-      const result = await agentGraph.stream(
+      const graph = this.getGraph(config.business);
+      const result = await graph.stream(
         {
           messages: [new HumanMessage(query)],
           userQuery: query,
