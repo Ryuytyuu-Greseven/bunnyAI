@@ -1,0 +1,14 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: lyreai:latest
+    container_name: lyreai
+    ports:
+      - "3000:3000"
+    environment:
+      - GOOGLE_APPLICATION_CREDENTIALS=/tmp/keys/application_default_credentials.json
+    volumes:
+      - ~/.config/gcloud/application_default_credentials.json:/tmp/keys/application_default_credentials.json:ro
+    restart: unless-stopped

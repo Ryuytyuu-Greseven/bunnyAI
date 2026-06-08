@@ -48,3 +48,7 @@ Thumbs.db
 .env.local
 .env.*
 !.env.example
+
+# firebase
+.agents/
+.firebase
