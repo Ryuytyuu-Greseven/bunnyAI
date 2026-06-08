@@ -22,7 +22,7 @@ FROM node:22.19.0-alpine
 WORKDIR /usr/src/app
 
 # Copy the environment file
-COPY production.env .env
+# COPY production.env .env
 
 COPY package*.json ./
 

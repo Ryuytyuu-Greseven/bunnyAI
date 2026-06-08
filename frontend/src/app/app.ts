@@ -28,7 +28,6 @@ interface ChatMessage {
 export class App implements AfterViewInit, OnDestroy {
   // Config Form (Reactive Form)
   configForm = new FormGroup({
-    model: new FormControl('models/gemini-2.0-flash-exp'),
     voice: new FormControl('Aoede'),
     systemInstruction: new FormControl("You are Lyre AI, a brilliant, friendly, and helpful real-time AI assistant. Respond conversationally, keep your responses concise, and adapt dynamically to the user's tone."),
     business: new FormControl('Customer Success'),
@@ -146,7 +145,6 @@ export class App implements AfterViewInit, OnDestroy {
 
   // Establish real-time session
   async connect() {
-    const model = this.configForm.value.model || 'models/gemini-2.0-flash-exp';
     const voice = this.configForm.value.voice || 'Aoede';
     const instruction = this.configForm.value.systemInstruction || '';
     const business = this.configForm.value.business || 'Customer Success';
@@ -172,7 +170,6 @@ export class App implements AfterViewInit, OnDestroy {
         // 1. Send configuration message to set model/voice
         const setupMsg = {
           setup: {
-            model: model,
             generationConfig: {
               responseModalities: ["AUDIO"],
               speechConfig: {
@@ -196,7 +193,7 @@ export class App implements AfterViewInit, OnDestroy {
 
         this.socket?.send(JSON.stringify(setupMsg));
         console.log('Setup message sent', setupMsg);
-        this.log(`Sent setup configuration (Model: ${model}, Voice: ${voice})`, 'info');
+        this.log(`Sent setup configuration (Voice: ${voice})`, 'info');
 
         // 2. Setup audio nodes
         await this.initAudioInput();
