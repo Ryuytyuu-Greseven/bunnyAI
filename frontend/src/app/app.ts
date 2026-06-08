@@ -2,6 +2,7 @@ import { Component, ElementRef, ViewChild, HostListener, AfterViewInit, OnDestro
 import { NgClass } from '@angular/common';
 import { FormGroup, FormControl, ReactiveFormsModule } from '@angular/forms';
 import { MicVAD } from '@ricky0123/vad-web';
+import { environment } from '../environments/environment';
 
 interface ConsoleLog {
   id: number;
@@ -156,10 +157,8 @@ export class App implements AfterViewInit, OnDestroy {
       this.isConnecting = true;
       this.configForm.disable();
 
-      // Determine backend WS path (support dev port 4200 -> 3000)
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = window.location.port === '4200' ? 'localhost:3000' : window.location.host;
-      const wsUrl = `${protocol}//${host}/ws`;
+      // Connect using the URL defined in the active environment file
+      const wsUrl = environment.wsUrl;
 
       this.socket = new WebSocket(wsUrl);
 
