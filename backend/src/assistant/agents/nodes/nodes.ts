@@ -9,16 +9,17 @@ import { MultiServerMCPClient } from "@langchain/mcp-adapters";
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
-const client = new MultiServerMCPClient({
-  mcpServers:
-  {
-    'weather-server': {
-      transport: 'sse',
-      url: "http://localhost:8000/mcp",
-      automaticSSEFallback: false,
-    }
-  }
-})
+// TODO-1: Lets use the MCP later
+// const client = new MultiServerMCPClient({
+//   mcpServers:
+//   {
+//     'weather-server': {
+//       transport: 'sse',
+//       url: "http://localhost:8000/mcp",
+//       automaticSSEFallback: false,
+//     }
+//   }
+// })
 
 const logger = new Logger();
 const promptCache = new Map<string, string>();
@@ -77,9 +78,10 @@ async function runBusinessAgentNode(business: string, state: AgentState, config?
   promptQuery = `User Query: ${query}\n\nTool/Knowledge Source Output:\n${toolContent}\n\nPlease draft the final response to the user incorporating this tool result context according to the system rules (same language, language bracket prefix, etc.).`;
 
   try {
-    logger.log('Requesting MCP Tools');
-    const tools = await client.getTools();
-    logger.log('Loaded MCP Tools');
+    // TODO-1: Lets focus later
+    // logger.log('Requesting MCP Tools');
+    // const tools = await client.getTools();
+    // logger.log('Loaded MCP Tools');
 
     logger.log('Loading Business Prompt');
     const businessPromptContent = await loadBusinessPrompt(business);
@@ -91,7 +93,7 @@ async function runBusinessAgentNode(business: string, state: AgentState, config?
     const agent = createAgent({
       model: llmInstance,
       systemPrompt: systemPrompt,
-      tools: [getHrPolicyTool, getUserLeaveBalanceTool, ...tools],
+      tools: [getHrPolicyTool, getUserLeaveBalanceTool],
     });
 
     const responseStream = await agent.stream({ messages: [{ role: 'human', content: promptQuery }] });
