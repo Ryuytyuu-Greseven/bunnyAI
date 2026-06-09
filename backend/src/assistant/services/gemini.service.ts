@@ -122,7 +122,7 @@ export class GeminiService implements IAiService {
     });
 
     stream.addListener('data', (response) => {
-      this.logger.log('Response from stream session', response);
+      // this.logger.log('Response from stream session', response);
       const result = response.results[0];
       if (result && result.alternatives[0]) {
         const transcript = result.alternatives[0].transcript;

@@ -33,3 +33,4 @@ export * from './customer-success.graph';
 export * from './implementation.graph';
 export * from './alerting.graph';
 export * from './hiring.graph';
+export * from './creditcards/graph/creditcard.graph';
