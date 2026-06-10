@@ -276,6 +276,22 @@ export class App implements AfterViewInit, OnDestroy {
     }
   }
 
+  navigateHome() {
+    const currentHostname = window.location.hostname;
+    const parts = currentHostname.split('.');
+    
+    // Replace the subdomain with 'www' if there are enough parts,
+    // e.g. lyreai.supersoul.life -> www.supersoul.life
+    if (parts.length > 2) {
+      parts[0] = 'www';
+      const newHostname = parts.join('.');
+      window.location.href = `https://${newHostname}`;
+    } else {
+      // Fallback for localhost or bare domains
+      window.location.href = '/';
+    }
+  }
+
   toggleMute() {
     this.isMuted = !this.isMuted;
 
