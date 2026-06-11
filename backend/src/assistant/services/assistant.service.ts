@@ -69,9 +69,15 @@ export class AssistantService {
       // Clear LangGraph conversation memory for this specific thread
       try {
         const { creditCardCheckpointer } = require('../agents/graphs/creditcards/graph/creditcard.graph');
-        creditCardCheckpointer.storage = {}; // Basic MemorySaver clear, or if it has deleteThread, we can use it. But just to be safe, we will just delete the keys
+        const { salesCheckpointer } = require('../agents/graphs/sales/graph/sales.graph');
+        creditCardCheckpointer.storage = {}; 
+        salesCheckpointer.storage = {};
+
         if (typeof creditCardCheckpointer.deleteThread === 'function') {
           creditCardCheckpointer.deleteThread(session.sessionId);
+        }
+        if (typeof salesCheckpointer.deleteThread === 'function') {
+          salesCheckpointer.deleteThread(session.sessionId);
         }
       } catch (e) {
         this.logger.error('Error clearing LangGraph checkpointer memory:', e);
