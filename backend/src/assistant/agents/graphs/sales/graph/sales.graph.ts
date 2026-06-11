@@ -6,20 +6,18 @@ function routeFromRouter(state: SalesState) {
   return state.routeDestination as any;
 }
 
-function checkDiscovery(state: SalesState) {
-  if (state.companyName && state.industry && state.painPoints) {
-    return 'Presentation_Node';
+// After Budget_Discovery_Node: if we captured a budget, immediately fetch and list properties
+function checkBudgetDiscovery(state: SalesState) {
+  if (state.budgetMin !== null || state.budgetMax !== null) {
+    return 'Property_Listing_Node';
   }
-  return '__end__';
+  return '__end__'; // still missing budget — wait for next user turn
 }
 
-function checkClosing(state: SalesState) {
-  if (state.meetingScheduled !== null) {
-    if (state.meetingScheduled) {
-      return '__end__'; // Deal won/Meeting scheduled!
-    } else {
-      return 'Graceful_Rejection_Node'; // Deal lost
-    }
+// After Property_Detail_Node: if customer expressed purchase intent, proceed to handoff
+function checkPurchaseIntent(state: SalesState) {
+  if (state.purchaseIntentPropertyId) {
+    return 'Human_Handoff_Node';
   }
   return '__end__';
 }
@@ -27,37 +25,37 @@ function checkClosing(state: SalesState) {
 const workflow = new StateGraph(SalesStateAnnotation)
   .addNode('Semantic_Router_Node', Nodes.Semantic_Router_Node)
   .addNode('Greeting_Pitch_Node', Nodes.Greeting_Pitch_Node)
-  .addNode('Discovery_Node', Nodes.Discovery_Node)
-  .addNode('Presentation_Node', Nodes.Presentation_Node)
+  .addNode('Budget_Discovery_Node', Nodes.Budget_Discovery_Node)
+  .addNode('Property_Listing_Node', Nodes.Property_Listing_Node)
+  .addNode('Property_Detail_Node', Nodes.Property_Detail_Node)
   .addNode('Objection_Handling_Node', Nodes.Objection_Handling_Node)
-  .addNode('Closing_Node', Nodes.Closing_Node)
-  .addNode('FAQ_RAG_Node', Nodes.FAQ_RAG_Node)
   .addNode('Human_Handoff_Node', Nodes.Human_Handoff_Node)
-  .addNode('Silence_Recovery_Node', Nodes.Silence_Recovery_Node)
   .addNode('Graceful_Rejection_Node', Nodes.Graceful_Rejection_Node)
+  .addNode('Silence_Recovery_Node', Nodes.Silence_Recovery_Node)
 
-  // Start always passes through the Semantic Router
+  // Every turn starts at the semantic router
   .addEdge('__start__', 'Semantic_Router_Node')
 
-  // Router decides where to go
+  // Router dispatches to the appropriate node
   .addConditionalEdges('Semantic_Router_Node', routeFromRouter)
 
-  // Funnel Nodes (End implies waiting for user input, looping back to Start->Router on next turn)
+  // Greeting: wait for customer response
   .addEdge('Greeting_Pitch_Node', '__end__')
-  
-  .addConditionalEdges('Discovery_Node', checkDiscovery)
-  
-  .addEdge('Presentation_Node', '__end__')
-  
-  .addEdge('Objection_Handling_Node', '__end__')
-  
-  .addConditionalEdges('Closing_Node', checkClosing)
 
-  // Escape Hatches
-  .addEdge('FAQ_RAG_Node', '__end__')
+  // Budget Discovery: if budget captured, chain directly into property listing
+  .addConditionalEdges('Budget_Discovery_Node', checkBudgetDiscovery)
+
+  // Property listing: present options, wait for customer to pick one
+  .addEdge('Property_Listing_Node', '__end__')
+
+  // Property detail: if purchase intent detected, chain to handoff
+  .addConditionalEdges('Property_Detail_Node', checkPurchaseIntent)
+
+  // Escape hatches
+  .addEdge('Objection_Handling_Node', '__end__')
   .addEdge('Human_Handoff_Node', '__end__')
-  .addEdge('Silence_Recovery_Node', '__end__')
-  .addEdge('Graceful_Rejection_Node', '__end__');
+  .addEdge('Graceful_Rejection_Node', '__end__')
+  .addEdge('Silence_Recovery_Node', '__end__');
 
 export const salesCheckpointer = new MemorySaver();
 export const salesGraph = workflow.compile({ checkpointer: salesCheckpointer });

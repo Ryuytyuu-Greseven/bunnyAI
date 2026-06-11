@@ -27,10 +27,10 @@ const workflow = new StateGraph(AgentStateAnnotation)
 export const agentGraph = workflow.compile();
 
 export * from './sales/graph/sales.graph';
-export * from './insurance.graph';
-export * from './customer-support.graph';
+export * from './insurance/graph/insurance.graph';
+export * from './customer-support/graph/customer-support.graph';
 export * from './customer-success.graph';
 export * from './implementation.graph';
-export * from './alerting.graph';
+export * from './alerting/graph/alerting.graph';
 export * from './hiring.graph';
 export * from './creditcards/graph/creditcard.graph';

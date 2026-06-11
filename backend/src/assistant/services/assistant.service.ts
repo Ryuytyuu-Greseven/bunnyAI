@@ -3,7 +3,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { SharedAiService } from './shared-ai.service';
 import { SessionState } from '../types/assistant.types';
 import { AgentService } from '../agents/agent.service';
-
 import { randomUUID } from 'crypto';
 
 @Injectable()
@@ -14,25 +13,22 @@ export class AssistantService {
   constructor(
     private readonly sharedAiService: SharedAiService,
     private readonly agentService: AgentService,
-  ) { }
+  ) {}
+
+  // ─── Session lifecycle ────────────────────────────────────────────────────
 
   public initializeSession(client: any): void {
-    this.logger.log('Client connected to WebSocket Gateway');
+    this.logger.log('Client connected — initializing session');
 
     if (!this.sharedAiService.hasValidApiKey()) {
-      this.logger.error('Error: API Key is not configured on the server.');
+      this.logger.error('API key is not configured.');
       if (client.readyState === WebSocket.OPEN) {
-        client.send(
-          JSON.stringify({
-            error: 'Service down',
-          }),
-        );
+        client.send(JSON.stringify({ error: 'Service down' }));
       }
       client.close();
       return;
     }
 
-    // Initialize state for this connection
     const session: SessionState = {
       config: this.sharedAiService.getDefaultConfig(),
       sessionId: randomUUID(),
@@ -48,248 +44,130 @@ export class AssistantService {
     };
 
     this.sessions.set(client, session);
-
-    // Initialize real-time Speech-to-Text stream
-    try {
-      this.logger.log('Sessions strtreaming started');
-      session.sttStream = this.sharedAiService.createSttStream(
-        (data: string, isFinal: boolean) => this.handleSttData(client, data, isFinal),
-        (err: any) => this.handleSttError(client, err),
-      );
-      this.logger.log(`Stream Check 2: ${session.sttStream.destroyed}`);
-    } catch (err) {
-      this.logger.error('Failed to create STT stream for connection:', err);
-    }
   }
 
   public cleanupSession(client: any): void {
-    this.logger.log('Client disconnected from WebSocket Gateway');
+    this.logger.log('Client disconnected — cleaning up session');
     const session = this.sessions.get(client);
     if (session) {
-      // Clear LangGraph conversation memory for this specific thread
       try {
         const { creditCardCheckpointer } = require('../agents/graphs/creditcards/graph/creditcard.graph');
         const { salesCheckpointer } = require('../agents/graphs/sales/graph/sales.graph');
-        creditCardCheckpointer.storage = {}; 
+        const { customerSupportCheckpointer } = require('../agents/graphs/customer-support/graph/customer-support.graph');
+        creditCardCheckpointer.storage = {};
         salesCheckpointer.storage = {};
-
-        if (typeof creditCardCheckpointer.deleteThread === 'function') {
-          creditCardCheckpointer.deleteThread(session.sessionId);
-        }
-        if (typeof salesCheckpointer.deleteThread === 'function') {
-          salesCheckpointer.deleteThread(session.sessionId);
-        }
+        customerSupportCheckpointer.storage = {};
       } catch (e) {
-        this.logger.error('Error clearing LangGraph checkpointer memory:', e);
-      }
-
-      if (session.silenceTimeout) {
-        clearTimeout(session.silenceTimeout);
-        session.silenceTimeout = null;
-      }
-      if (session.sttStream) {
-        try {
-          session.sttStream.end();
-        } catch (e) {
-          this.logger.error('Error ending STT stream during cleanup:', e);
-        }
+        this.logger.error('Error clearing LangGraph checkpointer:', e);
       }
       this.sessions.delete(client);
     }
   }
 
-  public updateSessionConfig(client: any, setupConfig: any): SessionState | undefined {
-    const session = this.sessions.get(client);
-    if (session) {
-      session.config = this.sharedAiService.parseSetupConfig(setupConfig);
-      this.logger.log(
-        `Session setup updated: ${JSON.stringify(session.config)}`,
-      );
-    }
-    return session;
+  /** Returns the sessionId for this client — used by AudioDriverService keying. */
+  public getSessionId(client: any): string | undefined {
+    return this.sessions.get(client)?.sessionId;
   }
+
+  // ─── Setup message ────────────────────────────────────────────────────────
 
   public initiateAgentState(client: any, setupConfig: any): void {
-    const session = this.updateSessionConfig(client, setupConfig);
-    if (session) {
-      // Instantly trigger the graph so the agent greets the user
-      this.logger.log('Triggering initial agent greeting');
-      session.queryQueue.push('SYSTEM_START_CONVERSATION');
-      this.processQueryQueue(client, session);
-    };
-  }
-
-  public handleAudioChunk(client: any, base64Audio: string): void {
     const session = this.sessions.get(client);
     if (!session) return;
 
-    const chunkBuffer = Buffer.from(base64Audio, 'base64');
-    if (session.sttStream) {
-      try {
-        session.sttStream.write({
-          audio: chunkBuffer,
-        });
-      } catch (err) {
-        this.logger.error('Error writing to STT stream:', err);
-      }
-    } else {
-      this.logger.error('STT stream is not initialized');
-    }
+    session.config = this.sharedAiService.parseSetupConfig(setupConfig);
+    this.logger.log(
+      `Agent configured: business="${session.config.business}", voice="${session.config.voice}"`,
+    );
+
+    // Trigger initial greeting
+    session.queryQueue.push('SYSTEM_START_CONVERSATION');
+    this.processQueryQueue(client, session);
   }
 
-  private handleSttData(client: any, transcript: string, isFinal: boolean): void {
+  // ─── AudioDriver callbacks ────────────────────────────────────────────────
+
+  /**
+   * Called by AudioDriverService when the first audio chunk of a new
+   * utterance arrives. Interrupts any in-progress TTS immediately.
+   */
+  public handleBargeIn(client: any): void {
     const session = this.sessions.get(client);
-    if (!session || !transcript) return;
+    if (!session || !session.isGenerating) return;
 
-    const cleaned = transcript.trim();
-    if (!cleaned) return;
+    this.logger.log('[Barge-in] User started speaking — interrupting AI.');
+    session.isGenerating = false;
 
-    // Reset silence timeout
-    this.resetSilenceTimeout(client, session);
-
-    // BARGE-IN LOGIC: If AI is generating and user starts speaking, stop the AI!
-    if (session.isGenerating) {
-      this.logger.log(`[Barge-in] User started speaking ("${cleaned}"). Aborting AI generation and clearing frontend audio queue.`);
-      session.isGenerating = false;
-
-      // Tell frontend to stop playing the current TTS audio queue
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(
-          JSON.stringify({
-            serverContent: {
-              interrupted: true,
-            },
-          }),
-        );
-      }
-    }
-
-    if (isFinal) {
-      this.logger.log(`[STT Stream] Final segment: "${cleaned}"`);
-      session.accumulatedTranscript = session.accumulatedTranscript
-        ? session.accumulatedTranscript + ' ' + cleaned
-        : cleaned;
-
-      // Send to client
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(
-          JSON.stringify({
-            userContent: {
-              text: cleaned,
-            },
-          }),
-        );
-      }
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify({ serverContent: { interrupted: true } }));
     }
   }
 
-  private handleSttError(client: any, err: any): void {
-    this.logger.error(`[STT Stream] Error: ${err.message || err}`, err);
-  }
+  /**
+   * Called by AudioDriverService once Google STT returns a finalized
+   * transcript for the user's utterance. Queues it for the LLM pipeline.
+   */
+  public onTranscriptReady(client: any, text: string): void {
+    const session = this.sessions.get(client);
+    if (!session || !text.trim()) return;
 
-  private resetSilenceTimeout(client: any, session: SessionState): void {
-    if (session.silenceTimeout) {
-      clearTimeout(session.silenceTimeout);
-      session.silenceTimeout = null;
+    this.logger.log(`[Transcript] "${text}"`);
+
+    // Echo to frontend so it can display the user's words
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify({ userContent: { text } }));
     }
 
-    session.silenceTimeout = setTimeout(() => {
-      this.handleSilenceTimeout(client, session);
-    }, 1000);
+    session.queryQueue.push(text);
+    this.processQueryQueue(client, session);
   }
 
-  private handleSilenceTimeout(client: any, session: SessionState): void {
-    session.silenceTimeout = null;
-    if (session.accumulatedTranscript.trim().length > 0) {
-      this.logger.log(
-        `[Silence Timeout] Silence detected. Triggering LLM query.`,
-      );
-      this.triggerLlmQuery(client, session);
-    }
-  }
+  // ─── LLM + TTS pipeline ──────────────────────────────────────────────────
 
-  private triggerLlmQuery(client: any, session: SessionState) {
-    if (session.accumulatedTranscript.trim().length > 0) {
-      const textToProcess = session.accumulatedTranscript;
-      session.accumulatedTranscript = '';
-      this.logger.log(`Queueing LLM response for: "${textToProcess}"`);
-      if (!session.queryQueue) {
-        session.queryQueue = [];
-      }
-      session.queryQueue.push(textToProcess);
-      this.processQueryQueue(client, session);
-    }
-  }
-
-  private async processQueryQueue(client: any, session: SessionState) {
+  private async processQueryQueue(client: any, session: SessionState): Promise<void> {
     if (!session.queryQueue || session.queryQueue.length === 0) return;
 
     const queryText = session.queryQueue.shift()!;
     session.isGenerating = true;
 
     try {
-      this.logger.log(`Processing user query with LLM: "${queryText}"`);
+      this.logger.log(`[LLM] Processing: "${queryText}"`);
 
-      // Check if connection was closed or interrupted
-      if (!session.isGenerating) return;
-
-      // Invoke LangGraph agent in stream mode
       const responseStream = this.agentService.runAgent(
         queryText,
         session.config,
-        session.sessionId
+        session.sessionId,
       );
-      // Call streaming text to speech
+
       await this.sharedAiService.textToSpeech(
         responseStream,
         session.config.voice,
         this.onAudioChunk,
         session,
-        client
+        client,
       );
-    } catch (err) {
-      this.logger.error('Error during query processing:', err);
+    } catch (err: any) {
+      this.logger.error('Error in LLM/TTS pipeline:', err);
       if (client.readyState === WebSocket.OPEN) {
-        client.send(
-          JSON.stringify({
-            error: `Processing error: ${err.message || err}`,
-          }),
-        );
+        client.send(JSON.stringify({ error: `Processing error: ${err.message || err}` }));
       }
     } finally {
       this.processQueryQueue(client, session);
     }
   }
 
-
-  // streaming audion & text to client
-  onAudioChunk(base64Audio: string, text: string, client: any) {
+  // Streams synthesized audio and text chunks back to the WebSocket client
+  onAudioChunk(base64Audio: string, text: string, client: any): void {
     const parts: any[] = [];
     if (base64Audio) {
-      parts.push({
-        inlineData: {
-          mimeType: 'audio/l16', // LINEAR16 raw PCM
-          data: base64Audio,
-        },
-      });
+      parts.push({ inlineData: { mimeType: 'audio/l16', data: base64Audio } });
     }
     if (text) {
-      parts.push({
-        text,
-      });
+      parts.push({ text });
     }
-
-    const responsePayload = {
-      serverContent: {
-        modelTurn: {
-          parts,
-        },
-      },
-    };
 
     if (client.readyState === WebSocket.OPEN) {
-      client.send(JSON.stringify(responsePayload));
+      client.send(JSON.stringify({ serverContent: { modelTurn: { parts } } }));
     }
-
   }
 }

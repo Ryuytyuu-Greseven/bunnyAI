@@ -327,6 +327,7 @@ CRITICAL RULES:
               const base64Audio = Buffer.from(
                 response.audioContent as Uint8Array,
               ).toString('base64');
+              console.log('Got some data');
               onAudioChunk(base64Audio, '', client);
             }
           });
@@ -415,7 +416,9 @@ CRITICAL RULES:
     } catch (err) {
       this.logger.error('Error in LLM stream to TTS generation loop:', err);
     } finally {
-      ttsStream.end();
+      if (ttsStream && !ttsStream.destroyed) {
+        ttsStream.end();
+      }
     }
   }
 

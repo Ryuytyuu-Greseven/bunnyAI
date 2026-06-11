@@ -3,6 +3,7 @@ import { AssistantGateway } from './gateways/assistant.gateway';
 import { AssistantLiveGateway } from './gateways/assistant-live.gateway';
 import { RecordingTesterService } from './recording-tester.service';
 import { AssistantService } from './services/assistant.service';
+import { AudioDriverService } from './services/audio-driver.service';
 import { GeminiService } from './services/gemini.service';
 import { OpenAiService } from './services/openai.service';
 import { SharedAiService } from './services/shared-ai.service';
@@ -18,6 +19,7 @@ import { McpController } from './mcp.controller';
     AssistantLiveGateway,
     RecordingTesterService,
     AssistantService,
+    AudioDriverService,
     GeminiService,
     OpenAiService,
     SharedAiService,
@@ -28,6 +30,7 @@ import { McpController } from './mcp.controller';
     AssistantLiveGateway,
     RecordingTesterService,
     AssistantService,
+    AudioDriverService,
     GeminiService,
     OpenAiService,
     SharedAiService,

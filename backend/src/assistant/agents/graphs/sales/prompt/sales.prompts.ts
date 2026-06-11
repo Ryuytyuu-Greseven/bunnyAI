@@ -23,10 +23,10 @@ export async function getPrompt(promptName: string): Promise<string> {
   try {
     const filePath = path.join(__dirname, '..', '..', '..', '..', '..', 'prompts', 'sales', `${promptName}.md`);
     const content = await fs.readFile(filePath, 'utf-8');
-    
+
     // Append Guardrails exactly once before caching
     const fullPrompt = content + GLOBAL_GUARDRAILS;
-    
+
     promptCache.set(promptName, fullPrompt);
     return fullPrompt;
   } catch (error) {

@@ -2,7 +2,6 @@ import { AIMessage } from '@langchain/core/messages';
 import { salesGraph } from './sales.graph';
 import { SalesState } from '../state/sales.state';
 
-// 1. Deep Mock the LLM Instance and Prompts
 jest.mock('../../../llms/google.llm', () => ({
   llmInstance: {
     invoke: jest.fn(),
@@ -14,7 +13,38 @@ jest.mock('../prompt/sales.prompts', () => ({
   getPrompt: jest.fn().mockResolvedValue('Mocked prompt'),
 }));
 
-// Import the mocked instance
+jest.mock('../tool/sales.tools', () => ({
+  listPropertiesByBudget: jest.fn().mockReturnValue([
+    {
+      id: 'prop_001',
+      name: 'Sunrise Valley Residences',
+      location: 'Whitefield, Bangalore',
+      price: 8_500_000,
+      type: '3BHK Apartment',
+      bedrooms: 3,
+      bathrooms: 2,
+      sqft: 1850,
+      highlights: ['Pool', 'Clubhouse'],
+      shortPitch: 'A 3BHK at 85 lakhs in Whitefield.',
+      fullDescription: 'A premium gated community apartment.',
+    },
+    {
+      id: 'prop_002',
+      name: 'Green Crest Villas',
+      location: 'Sarjapur, Bangalore',
+      price: 12_500_000,
+      type: '4BHK Villa',
+      bedrooms: 4,
+      bathrooms: 4,
+      sqft: 2800,
+      highlights: ['Private garden', 'EV charging'],
+      shortPitch: 'A 4BHK villa at 1.25 crore in Sarjapur.',
+      fullDescription: 'An independent villa with a private garden.',
+    },
+  ]),
+  formatPrice: jest.fn((price: number) => `${price} INR`),
+}));
+
 import { llmInstance } from '../../../llms/google.llm';
 
 describe('Sales Agent E2E Flow', () => {
@@ -22,145 +52,179 @@ describe('Sales Agent E2E Flow', () => {
     jest.clearAllMocks();
   });
 
-  const getInitialState = (): SalesState => ({
+  const getInitialState = (): Partial<SalesState> => ({
     messages: [],
-    companyName: null,
-    industry: null,
-    painPoints: null,
+    customerName: null,
+    budgetMin: null,
+    budgetMax: null,
+    properties: [],
+    currentPropertyIndex: 0,
+    purchaseIntentPropertyId: null,
+    currentNode: '',
     routeDestination: '',
-    budget: null,
-    meetingScheduled: null,
-    currentNode: null,
   });
 
-  it('should complete the Happy Path successfully', async () => {
-    // Mock Router to go to Greeting first
-    const mockRouter = { invoke: jest.fn().mockResolvedValueOnce({ routeDestination: 'Greeting_Pitch_Node' }) };
-
-    // Mock Discovery to return all info at once
-    const mockDiscovery = {
-      invoke: jest.fn().mockResolvedValue({
-        companyName: 'Tech Corp',
-        industry: 'Software',
-        painPoints: 'Slow deployments',
-        responseToUser: 'Got it. Let me present.',
-      }),
+  it('should greet customer on initial connection', async () => {
+    const mockRouter = {
+      invoke: jest.fn().mockResolvedValueOnce({ routeDestination: 'Greeting_Pitch_Node' }),
     };
 
-    // Mock Closing to return meeting scheduled
-    const mockClosing = {
-      invoke: jest.fn().mockResolvedValue({
-        meetingScheduled: true,
-        responseToUser: 'Meeting scheduled!',
-      }),
-    };
-
-    (llmInstance.withStructuredOutput as jest.Mock).mockImplementation((schema, options) => {
-      if (options.name === 'route_user') return mockRouter;
-      if (options.name === 'extract_discovery') return mockDiscovery;
-      if (options.name === 'extract_closing') return mockClosing;
+    (llmInstance.withStructuredOutput as jest.Mock).mockImplementation((_, options) => {
+      if (options.name === 'route_sales_user') return mockRouter;
     });
+    (llmInstance.invoke as jest.Mock).mockResolvedValue(new AIMessage('Hello! I am calling from XYZ Properties.'));
 
+    const state = await salesGraph.invoke(getInitialState(), { configurable: { thread_id: 'test_1' } });
+
+    expect(state.currentNode).toBe('Greeting_Pitch_Node');
+  });
+
+  it('should complete Happy Path: Greeting → Budget Discovery → Property Listing → Detail → Handoff', async () => {
+    const mockRouter = { invoke: jest.fn() };
+    const mockBudget = { invoke: jest.fn() };
+    const mockDetail = { invoke: jest.fn() };
+
+    (llmInstance.withStructuredOutput as jest.Mock).mockImplementation((_, options) => {
+      if (options.name === 'route_sales_user') return mockRouter;
+      if (options.name === 'extract_budget') return mockBudget;
+      if (options.name === 'extract_property_detail') return mockDetail;
+    });
     (llmInstance.invoke as jest.Mock).mockResolvedValue(new AIMessage('Conversational response'));
 
-    let state = getInitialState();
-
-    // 1st Turn: Start -> Router -> Greeting Pitch -> __end__
-    state = await salesGraph.invoke(state, { configurable: { thread_id: 'test' } });
+    // Turn 1: Start → Greeting
+    mockRouter.invoke.mockResolvedValueOnce({ routeDestination: 'Greeting_Pitch_Node' });
+    let state = await salesGraph.invoke(getInitialState(), { configurable: { thread_id: 'test_2' } });
     expect(state.currentNode).toBe('Greeting_Pitch_Node');
 
-    // User speaks, Router analyzes and sends to Discovery
-    mockRouter.invoke.mockResolvedValueOnce({ routeDestination: 'Discovery_Node' });
-    state.messages.push(new AIMessage('Tell me more.'));
+    // Turn 2: Customer says yes → Budget Discovery → (budget captured) → Property Listing
+    mockRouter.invoke.mockResolvedValueOnce({ routeDestination: 'Budget_Discovery_Node' });
+    mockBudget.invoke.mockResolvedValueOnce({
+      budgetMin: 5_000_000,
+      budgetMax: 10_000_000,
+      customerName: 'Ravi',
+      responseToUser: 'Great, let me pull up properties in that range.',
+    });
+    state.messages.push(new AIMessage('Yes, I am looking for something around 50 to 1 crore.'));
+    state = await salesGraph.invoke(state, { configurable: { thread_id: 'test_2' } });
 
-    // 2nd Turn: Start -> Router -> Discovery -> Presentation -> __end__
-    state = await salesGraph.invoke(state, { configurable: { thread_id: 'test' } });
+    // Budget discovered → chains into Property_Listing_Node in same turn
+    expect(state.currentNode).toBe('Property_Listing_Node');
+    expect(state.budgetMin).toBe(5_000_000);
+    expect(state.budgetMax).toBe(10_000_000);
+    expect(state.customerName).toBe('Ravi');
+    expect(state.properties.length).toBeGreaterThan(0);
 
-    expect(state.currentNode).toBe('Presentation_Node');
-    expect(state.companyName).toBe('Tech Corp');
-    expect(state.industry).toBe('Software');
-    expect(state.painPoints).toBe('Slow deployments');
+    // Turn 3: Customer asks for details → Property Detail → (purchase intent) → Human Handoff
+    mockRouter.invoke.mockResolvedValueOnce({ routeDestination: 'Property_Detail_Node' });
+    mockDetail.invoke.mockResolvedValueOnce({
+      requestedIndex: 0,
+      purchaseIntent: true,
+      responseToUser: 'Sunrise Valley is a fantastic choice. Let me connect you.',
+    });
+    state.messages.push(new AIMessage('Tell me about the first one. I want to book a visit.'));
+    state = await salesGraph.invoke(state, { configurable: { thread_id: 'test_2' } });
 
-    // 3rd Turn: User asks a question, goes to Closing Node
-    mockRouter.invoke.mockResolvedValueOnce({ routeDestination: 'Closing_Node' });
-    state.messages.push(new AIMessage('Sounds good, lets meet.'));
-
-    state = await salesGraph.invoke(state, { configurable: { thread_id: 'test' } });
-
-    expect(state.currentNode).toBe('Closing_Node');
-    expect(state.meetingScheduled).toBe(true);
+    // Purchase intent → chains into Human_Handoff_Node in same turn
+    expect(state.currentNode).toBe('Human_Handoff_Node');
+    expect(state.purchaseIntentPropertyId).toBe('prop_001');
   });
 
-  it('should loop in Discovery until all fields are filled', async () => {
-    const mockRouter = { invoke: jest.fn().mockResolvedValue({ routeDestination: 'Discovery_Node' }) };
-
-    // First invocation: only Company is given
-    const mockDiscovery = {
+  it('should stay in Budget_Discovery loop until budget is provided', async () => {
+    const mockRouter = { invoke: jest.fn().mockResolvedValue({ routeDestination: 'Budget_Discovery_Node' }) };
+    const mockBudget = {
       invoke: jest.fn()
         .mockResolvedValueOnce({
-          companyName: 'Acme Inc',
-          industry: null,
-          painPoints: null,
-          responseToUser: 'What industry are you in?',
+          budgetMin: null,
+          budgetMax: null,
+          customerName: null,
+          responseToUser: 'What is your budget range?',
         })
-        // Second invocation: Industry and Pain Points given
         .mockResolvedValueOnce({
-          companyName: null,
-          industry: 'Manufacturing',
-          painPoints: 'Supply chain delays',
-          responseToUser: 'Got it. Presenting...',
+          budgetMin: 3_000_000,
+          budgetMax: 7_000_000,
+          customerName: 'Priya',
+          responseToUser: 'Perfect, pulling up properties now.',
         }),
     };
 
-    (llmInstance.withStructuredOutput as jest.Mock).mockImplementation((schema, options) => {
-      if (options.name === 'route_user') return mockRouter;
-      if (options.name === 'extract_discovery') return mockDiscovery;
+    (llmInstance.withStructuredOutput as jest.Mock).mockImplementation((_, options) => {
+      if (options.name === 'route_sales_user') return mockRouter;
+      if (options.name === 'extract_budget') return mockBudget;
     });
+    (llmInstance.invoke as jest.Mock).mockResolvedValue(new AIMessage('Here are the properties.'));
 
-    (llmInstance.invoke as jest.Mock).mockResolvedValue(new AIMessage('General output'));
+    // Turn 1: Budget node, no budget extracted → __end__
+    let state = await salesGraph.invoke(getInitialState(), { configurable: { thread_id: 'test_3' } });
+    expect(state.currentNode).toBe('Budget_Discovery_Node');
+    expect(state.budgetMin).toBeNull();
 
-    let state = getInitialState();
-
-    // Turn 1: Router -> Discovery (gets Company) -> Ends because info is missing
-    state = await salesGraph.invoke(state, { configurable: { thread_id: 'test2' } });
-
-    expect(state.currentNode).toBe('Discovery_Node');
-    expect(state.companyName).toBe('Acme Inc');
-    expect(state.industry).toBeNull(); // Still missing
-
-    // Turn 2: User gives industry and pain points
-    state.messages.push(new AIMessage('Manufacturing, supply chain is slow.'));
-    state = await salesGraph.invoke(state, { configurable: { thread_id: 'test2' } });
-
-    // Now it should have all info and proceed to Presentation
-    expect(state.currentNode).toBe('Presentation_Node');
-    expect(state.industry).toBe('Manufacturing');
-    expect(state.painPoints).toBe('Supply chain delays');
+    // Turn 2: Budget provided → chains into Property_Listing_Node
+    state.messages.push(new AIMessage('Around 30 to 70 lakhs.'));
+    state = await salesGraph.invoke(state, { configurable: { thread_id: 'test_3' } });
+    expect(state.budgetMin).toBe(3_000_000);
+    expect(state.budgetMax).toBe(7_000_000);
+    expect(state.customerName).toBe('Priya');
+    expect(state.currentNode).toBe('Property_Listing_Node');
   });
 
-  it('should route to Graceful Rejection when meeting is not scheduled', async () => {
-    const mockRouter = { invoke: jest.fn().mockResolvedValueOnce({ routeDestination: 'Closing_Node' }) };
-    const mockClosing = {
-      invoke: jest.fn().mockResolvedValue({
-        meetingScheduled: false, // User said no
-        responseToUser: 'Okay, maybe next time.',
-      }),
+  it('should route to Graceful Rejection when customer is not interested', async () => {
+    const mockRouter = {
+      invoke: jest.fn().mockResolvedValueOnce({ routeDestination: 'Graceful_Rejection_Node' }),
     };
 
-    (llmInstance.withStructuredOutput as jest.Mock).mockImplementation((schema, options) => {
-      if (options.name === 'route_user') return mockRouter;
-      if (options.name === 'extract_closing') return mockClosing;
+    (llmInstance.withStructuredOutput as jest.Mock).mockImplementation((_, options) => {
+      if (options.name === 'route_sales_user') return mockRouter;
     });
+    (llmInstance.invoke as jest.Mock).mockResolvedValue(new AIMessage('Thank you for your time. Goodbye!'));
 
-    (llmInstance.invoke as jest.Mock).mockResolvedValue(new AIMessage('Sorry to hear that, goodbye.'));
+    const initial = { ...getInitialState(), currentNode: 'Greeting_Pitch_Node' };
+    const state = await salesGraph.invoke(initial, { configurable: { thread_id: 'test_4' } });
 
-    let state = getInitialState();
+    expect(state.currentNode).toBe('Graceful_Rejection_Node');
+  });
 
-    // Flow: Start -> Router -> Closing (false) -> Graceful Rejection -> __end__
-    state = await salesGraph.invoke(state, { configurable: { thread_id: 'test3' } });
+  it('should allow property switching via Property_Detail_Node', async () => {
+    const mockRouter = { invoke: jest.fn().mockResolvedValue({ routeDestination: 'Property_Detail_Node' }) };
+    const mockDetail = {
+      invoke: jest.fn()
+        .mockResolvedValueOnce({
+          requestedIndex: 1, // switched to property 2
+          purchaseIntent: false,
+          responseToUser: 'Sure, let me tell you about Green Crest Villas.',
+        }),
+    };
 
-    expect(state.meetingScheduled).toBe(false);
-    expect(state.currentNode).toBe('Closing_Node'); // The last node it recorded in its updates was Closing Node, but it routed through Rejection
-    // The Graceful Rejection node just returns { messages: [response] }, it doesn't update currentNode in the credit card example
+    (llmInstance.withStructuredOutput as jest.Mock).mockImplementation((_, options) => {
+      if (options.name === 'route_sales_user') return mockRouter;
+      if (options.name === 'extract_property_detail') return mockDetail;
+    });
+    (llmInstance.invoke as jest.Mock).mockResolvedValue(new AIMessage('General response'));
+
+    const initial: Partial<SalesState> = {
+      ...getInitialState(),
+      currentNode: 'Property_Listing_Node',
+      budgetMin: 5_000_000,
+      budgetMax: 15_000_000,
+      properties: [
+        {
+          id: 'prop_001', name: 'Sunrise Valley Residences', location: 'Whitefield',
+          price: 8_500_000, type: '3BHK', bedrooms: 3, bathrooms: 2, sqft: 1850,
+          highlights: [], shortPitch: '', fullDescription: '',
+        },
+        {
+          id: 'prop_002', name: 'Green Crest Villas', location: 'Sarjapur',
+          price: 12_500_000, type: '4BHK', bedrooms: 4, bathrooms: 4, sqft: 2800,
+          highlights: [], shortPitch: '', fullDescription: '',
+        },
+      ],
+      currentPropertyIndex: 0,
+    };
+
+    initial.messages = [new AIMessage('What about the second property?')];
+    const state = await salesGraph.invoke(initial, { configurable: { thread_id: 'test_5' } });
+
+    expect(state.currentNode).toBe('Property_Detail_Node');
+    expect(state.currentPropertyIndex).toBe(1);
+    expect(state.purchaseIntentPropertyId).toBeNull();
   });
 });

@@ -1,18 +1,16 @@
 import { Annotation } from '@langchain/langgraph';
 import { BaseMessage } from '@langchain/core/messages';
+import { Property } from '../tool/sales.tools';
 
 function reduceMessages(
   left: BaseMessage[] = [],
   right: BaseMessage[] | BaseMessage,
 ): BaseMessage[] {
-  if (Array.isArray(right)) {
-    return left.concat(right);
-  }
+  if (Array.isArray(right)) return left.concat(right);
   return left.concat([right]);
 }
 
 export const SalesStateAnnotation = Annotation.Root({
-  // Base state
   messages: Annotation<BaseMessage[]>({
     reducer: reduceMessages,
     default: () => [],
@@ -25,33 +23,46 @@ export const SalesStateAnnotation = Annotation.Root({
   customerPhNo: Annotation<string>(),
   extractedJson: Annotation<object>(),
 
-  // Sales specific funnel state
+  // Funnel tracking
   currentNode: Annotation<string>({
     reducer: (left, right) => right ?? left,
-    default: () => 'Greeting_Pitch_Node',
+    default: () => '',
   }),
   routeDestination: Annotation<string>({
     reducer: (left, right) => right ?? left,
     default: () => 'Greeting_Pitch_Node',
   }),
 
-  companyName: Annotation<string | null>({
+  // Customer context
+  customerName: Annotation<string | null>({
     reducer: (left, right) => right !== undefined ? right : left,
     default: () => null,
   }),
-  industry: Annotation<string | null>({
+
+  // Budget discovery
+  budgetMin: Annotation<number | null>({
     reducer: (left, right) => right !== undefined ? right : left,
     default: () => null,
   }),
-  painPoints: Annotation<string | null>({
+  budgetMax: Annotation<number | null>({
     reducer: (left, right) => right !== undefined ? right : left,
     default: () => null,
   }),
-  budget: Annotation<number | null>({
+
+  // Properties fetched from tool after budget is known
+  properties: Annotation<Property[]>({
     reducer: (left, right) => right !== undefined ? right : left,
-    default: () => null,
+    default: () => [],
   }),
-  meetingScheduled: Annotation<boolean | null>({
+
+  // 0-based index into properties[] — which property is currently being discussed
+  currentPropertyIndex: Annotation<number>({
+    reducer: (left, right) => right !== undefined ? right : left,
+    default: () => 0,
+  }),
+
+  // Set when customer expresses purchase intent
+  purchaseIntentPropertyId: Annotation<string | null>({
     reducer: (left, right) => right !== undefined ? right : left,
     default: () => null,
   }),
