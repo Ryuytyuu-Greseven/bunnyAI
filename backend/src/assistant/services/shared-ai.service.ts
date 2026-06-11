@@ -53,7 +53,7 @@ export class SharedAiService implements IAiService {
   }
 
   public createSttStream(
-    onData: (data: any) => void,
+    onData: (data: string, isFinal: boolean) => void,
     onError: (err: any) => void,
   ): any {
     const defaultProvider =

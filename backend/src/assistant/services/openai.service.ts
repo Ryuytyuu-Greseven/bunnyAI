@@ -22,7 +22,7 @@ export class OpenAiService implements IAiService {
   }
 
   public createSttStream(
-    onData: (data: any) => void,
+    onData: (data: string, isFinal: boolean) => void,
     onError: (err: any) => void,
   ): any {
     this.logger.log('createSttStream with OpenAI (stub)');

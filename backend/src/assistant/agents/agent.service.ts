@@ -51,6 +51,7 @@ export class AgentService {
   public async *runAgent(
     query: string,
     config: UserConfig,
+    sessionId: string,
   ): AsyncGenerator<{ text: string }> {
     this.logger.log(`Invoking agent LangGraph graph for query: "${query}" (Business: ${config.business})`);
 
@@ -62,7 +63,7 @@ export class AgentService {
           userQuery: query,
           systemInstruction: config.systemInstruction,
           business: config.business || '',
-          sessionId: '',
+          sessionId: sessionId,
           customerId: '',
           customerPhNo: '',
         },
@@ -70,6 +71,7 @@ export class AgentService {
           configurable: {
             sharedAiService: this.sharedAiService,
             userConfig: config,
+            thread_id: sessionId,
           },
         },
       );

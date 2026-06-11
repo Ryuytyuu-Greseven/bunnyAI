@@ -4,6 +4,8 @@ import { SharedAiService } from './shared-ai.service';
 import { SessionState } from '../types/assistant.types';
 import { AgentService } from '../agents/agent.service';
 
+import { randomUUID } from 'crypto';
+
 @Injectable()
 export class AssistantService {
   private readonly logger = new Logger(AssistantService.name);
@@ -33,6 +35,7 @@ export class AssistantService {
     // Initialize state for this connection
     const session: SessionState = {
       config: this.sharedAiService.getDefaultConfig(),
+      sessionId: randomUUID(),
       speechStarted: false,
       silenceStartTimestamp: 0,
       audioChunks: [],
@@ -50,7 +53,7 @@ export class AssistantService {
     try {
       this.logger.log('Sessions strtreaming started');
       session.sttStream = this.sharedAiService.createSttStream(
-        (data: any) => this.handleSttData(client, data),
+        (data: string, isFinal: boolean) => this.handleSttData(client, data, isFinal),
         (err: any) => this.handleSttError(client, err),
       );
       this.logger.log(`Stream Check 2: ${session.sttStream.destroyed}`);
@@ -63,6 +66,17 @@ export class AssistantService {
     this.logger.log('Client disconnected from WebSocket Gateway');
     const session = this.sessions.get(client);
     if (session) {
+      // Clear LangGraph conversation memory for this specific thread
+      try {
+        const { creditCardCheckpointer } = require('../agents/graphs/creditcards/graph/creditcard.graph');
+        creditCardCheckpointer.storage = {}; // Basic MemorySaver clear, or if it has deleteThread, we can use it. But just to be safe, we will just delete the keys
+        if (typeof creditCardCheckpointer.deleteThread === 'function') {
+          creditCardCheckpointer.deleteThread(session.sessionId);
+        }
+      } catch (e) {
+        this.logger.error('Error clearing LangGraph checkpointer memory:', e);
+      }
+
       if (session.silenceTimeout) {
         clearTimeout(session.silenceTimeout);
         session.silenceTimeout = null;
@@ -78,7 +92,7 @@ export class AssistantService {
     }
   }
 
-  public updateSessionConfig(client: any, setupConfig: any): void {
+  public updateSessionConfig(client: any, setupConfig: any): SessionState | undefined {
     const session = this.sessions.get(client);
     if (session) {
       session.config = this.sharedAiService.parseSetupConfig(setupConfig);
@@ -86,6 +100,17 @@ export class AssistantService {
         `Session setup updated: ${JSON.stringify(session.config)}`,
       );
     }
+    return session;
+  }
+
+  public initiateAgentState(client: any, setupConfig: any): void {
+    const session = this.updateSessionConfig(client, setupConfig);
+    if (session) {
+      // Instantly trigger the graph so the agent greets the user
+      this.logger.log('Triggering initial agent greeting');
+      session.queryQueue.push('SYSTEM_START_CONVERSATION');
+      this.processQueryQueue(client, session);
+    };
   }
 
   public handleAudioChunk(client: any, base64Audio: string): void {
@@ -106,7 +131,7 @@ export class AssistantService {
     }
   }
 
-  private handleSttData(client: any, transcript: any): void {
+  private handleSttData(client: any, transcript: string, isFinal: boolean): void {
     const session = this.sessions.get(client);
     if (!session || !transcript) return;
 
@@ -116,7 +141,24 @@ export class AssistantService {
     // Reset silence timeout
     this.resetSilenceTimeout(client, session);
 
-    if (cleaned) {
+    // BARGE-IN LOGIC: If AI is generating and user starts speaking, stop the AI!
+    if (session.isGenerating) {
+      this.logger.log(`[Barge-in] User started speaking ("${cleaned}"). Aborting AI generation and clearing frontend audio queue.`);
+      session.isGenerating = false;
+
+      // Tell frontend to stop playing the current TTS audio queue
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(
+          JSON.stringify({
+            serverContent: {
+              interrupted: true,
+            },
+          }),
+        );
+      }
+    }
+
+    if (isFinal) {
       this.logger.log(`[STT Stream] Final segment: "${cleaned}"`);
       session.accumulatedTranscript = session.accumulatedTranscript
         ? session.accumulatedTranscript + ' ' + cleaned
@@ -189,6 +231,7 @@ export class AssistantService {
       const responseStream = this.agentService.runAgent(
         queryText,
         session.config,
+        session.sessionId
       );
       // Call streaming text to speech
       await this.sharedAiService.textToSpeech(

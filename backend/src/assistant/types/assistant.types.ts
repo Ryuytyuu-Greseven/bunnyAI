@@ -7,6 +7,7 @@ export interface UserConfig {
 
 export interface SessionState {
   config: UserConfig;
+  sessionId: string;
   speechStarted: boolean;
   silenceStartTimestamp: number;
   audioChunks: Buffer[];

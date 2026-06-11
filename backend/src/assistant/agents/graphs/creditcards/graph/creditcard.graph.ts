@@ -1,4 +1,4 @@
-import { StateGraph } from '@langchain/langgraph';
+import { StateGraph, MemorySaver } from '@langchain/langgraph';
 import { CreditCardStateAnnotation, CreditCardState } from '../state/creditcard.state';
 import * as Nodes from '../node/creditcard.nodes';
 
@@ -67,4 +67,5 @@ const workflow = new StateGraph(CreditCardStateAnnotation)
   .addEdge('Silence_Recovery_Node', '__end__')
   .addEdge('Graceful_Rejection_Node', '__end__');
 
-export const creditCardsGraph = workflow.compile();
+export const creditCardCheckpointer = new MemorySaver();
+export const creditCardsGraph = workflow.compile({ checkpointer: creditCardCheckpointer });

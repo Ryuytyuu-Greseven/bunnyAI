@@ -4,8 +4,20 @@ import { llmInstance } from '../../../llms/google.llm';
 import * as Prompts from '../prompt/creditcard.prompts';
 import { z } from 'zod';
 
+import { Logger } from '@nestjs/common';
+
+const logger = new Logger()
+
 export async function Semantic_Router_Node(state: CreditCardState) {
   console.log(`[Router] Analyzing user input... Current Node: ${state.currentNode}`);
+
+  // Fast-path: If this is the initial system trigger to start the conversation, bypass the LLM entirely
+  const lastMsg = state.messages[state.messages.length - 1];
+  if (!state.currentNode && lastMsg && lastMsg.content === 'SYSTEM_START_CONVERSATION') {
+    console.log(`[Router] Initial connection detected. Auto-routing to Greeting_Pitch_Node.`);
+    return { routeDestination: 'Greeting_Pitch_Node' };
+  }
+
   const routerLlm = llmInstance.withStructuredOutput(
     z.object({
       routeDestination: z.enum([
@@ -21,6 +33,7 @@ export async function Semantic_Router_Node(state: CreditCardState) {
   );
 
   const promptText = await Prompts.getPrompt('semantic_router');
+  // logger.log('State Conversation', state.messages)
   const messages = [
     new SystemMessage(promptText + `\n\nCurrent Funnel State: ${state.currentNode}`),
     ...state.messages,

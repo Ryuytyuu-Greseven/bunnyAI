@@ -19,7 +19,7 @@ export interface IAiService {
     text: string,
   ): any;
   createSttStream(
-    onData: (data: any) => void,
+    onData: (data: string, isFinal: boolean) => void,
     onError: (err: any) => void,
   ): any;
 }

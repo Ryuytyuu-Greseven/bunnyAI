@@ -101,7 +101,7 @@ export class GeminiService implements IAiService {
   }
 
   public createSttStream(
-    onData: (data: any) => void,
+    onData: (data: string, isFinal: boolean) => void,
     onError: (err: any) => void,
   ): any {
     const projectId = this.configService.get<string>('GOOGLE_CLOUD_PROJECT');
@@ -134,9 +134,7 @@ export class GeminiService implements IAiService {
           `\rCurrent thought: ${transcript} ${isFinal ? '\n' : ''}`,
         );
 
-        if (isFinal) {
-          onData(transcript);
-        }
+        onData(transcript, isFinal);
       }
     });
 
@@ -166,7 +164,7 @@ export class GeminiService implements IAiService {
           },
         },
         streamingFeatures: {
-          interimResults: false,
+          interimResults: true,
         },
       },
     });

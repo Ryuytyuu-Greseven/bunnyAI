@@ -7,12 +7,12 @@ import { AssistantService } from '../services/assistant.service';
 
 @WebSocketGateway({ path: '/ws' })
 export class AssistantGateway
-  implements OnGatewayConnection, OnGatewayDisconnect
-{
-  constructor(private readonly assistantService: AssistantService) {}
+  implements OnGatewayConnection, OnGatewayDisconnect {
+  constructor(private readonly assistantService: AssistantService) { }
 
   handleConnection(client: any) {
     this.assistantService.initializeSession(client);
+    // console.log('client information', client);
 
     // Listen to messages from the browser client
     client.on('message', async (data: any) => {
@@ -22,7 +22,7 @@ export class AssistantGateway
 
         // 1. Handle Setup configuration message
         if (msg.setup) {
-          this.assistantService.updateSessionConfig(client, msg.setup);
+          this.assistantService.initiateAgentState(client, msg.setup);
           return;
         }
 
