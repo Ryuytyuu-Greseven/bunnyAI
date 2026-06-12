@@ -7,13 +7,20 @@ export interface AudioDriverCallbacks {
   onBargeIn: () => void;
 }
 
+export interface AudioSessionConfig {
+  /** Google STT encoding. Defaults to LINEAR16 for app clients; set MULAW for Twilio. */
+  encoding?: 'LINEAR16' | 'MULAW';
+  /** Sample rate in Hz. Defaults to 16000 for LINEAR16; use 8000 for Twilio mulaw. */
+  sampleRateHertz?: number;
+}
+
 interface AudioSession {
   stream: any | null;
   silenceTimer: NodeJS.Timeout | null;
-  // True after Google returns an interim result — meaning actual speech detected.
-  // Resets to false after isFinal:true so the next interim triggers barge-in again.
   speechDetectedByGoogle: boolean;
   callbacks: AudioDriverCallbacks;
+  encoding: 'LINEAR16' | 'MULAW';
+  sampleRateHertz: number;
 }
 
 /**
@@ -61,12 +68,18 @@ export class AudioDriverService {
 
   // ─── Public API ──────────────────────────────────────────────────────────────
 
-  startSession(sessionId: string, callbacks: AudioDriverCallbacks): void {
+  startSession(
+    sessionId: string,
+    callbacks: AudioDriverCallbacks,
+    audioConfig?: AudioSessionConfig,
+  ): void {
     const session: AudioSession = {
       stream: null,
       silenceTimer: null,
       speechDetectedByGoogle: false,
       callbacks,
+      encoding: audioConfig?.encoding ?? 'LINEAR16',
+      sampleRateHertz: audioConfig?.sampleRateHertz ?? 16000,
     };
     this.sessions.set(sessionId, session);
     this.openStream(sessionId, session);
@@ -171,8 +184,8 @@ export class AudioDriverService {
       streamingConfig: {
         config: {
           explicitDecodingConfig: {
-            encoding: 'LINEAR16',
-            sampleRateHertz: 16000,
+            encoding: session.encoding,
+            sampleRateHertz: session.sampleRateHertz,
             audioChannelCount: 1,
           },
           languageCodes: ['en-US'],

@@ -327,7 +327,7 @@ CRITICAL RULES:
               const base64Audio = Buffer.from(
                 response.audioContent as Uint8Array,
               ).toString('base64');
-              console.log('Got some data');
+              // console.log('Got some data');
               onAudioChunk(base64Audio, '', client);
             }
           });
