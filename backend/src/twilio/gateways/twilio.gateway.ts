@@ -7,6 +7,12 @@ import { Logger } from '@nestjs/common';
 import { AssistantService } from '../../assistant/services/assistant.service';
 import { AudioDriverService } from '../../assistant/services/audio-driver.service';
 import { convertTtsForTwilio } from '../utils/audio.util';
+import { saveLovebytRecording } from '../../assistant/agents/graphs/lovebyt/graph/lovebyt.graph';
+
+interface AudioRecord {
+  chunks: Buffer[];
+  startedAt: number;
+}
 
 /**
  * Adapts a Twilio Media Streams WebSocket into the shape that AssistantService
@@ -77,16 +83,13 @@ class TwilioClientAdapter {
  *
  * Configure your Twilio number's Voice webhook to POST to /twilio/voice.
  * The controller responds with TwiML that points Stream url="wss://…/twilio".
- *
- * For local dev, expose your server with ngrok:
- *   ngrok http 3000
- *   → set TWILIO_WEBHOOK_URL=https://<id>.ngrok.io
- *   → set TWILIO_WS_URL=wss://<id>.ngrok.io
  */
 @WebSocketGateway({ path: '/twilio' })
 export class TwilioGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(TwilioGateway.name);
   private readonly adapters = new Map<any, TwilioClientAdapter>();
+  // streamSid → accumulated audio (lovebyt sessions only)
+  private readonly recordings = new Map<string, AudioRecord>();
 
   constructor(
     private readonly assistantService: AssistantService,
@@ -118,6 +121,7 @@ export class TwilioGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     if (adapter.streamSid) {
       this.audioDriverService.endSession(adapter.streamSid);
+      this.flushRecording(adapter.streamSid);
     }
     this.assistantService.cleanupSession(adapter);
     this.adapters.delete(socket);
@@ -126,14 +130,9 @@ export class TwilioGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   // ── Twilio event handler ───────────────────────────────────────────────────
 
-  private handleTwilioEvent(
-    socket: any,
-    adapter: TwilioClientAdapter,
-    msg: any,
-  ): void {
+  private handleTwilioEvent(socket: any, adapter: TwilioClientAdapter, msg: any): void {
     switch (msg.event) {
       case 'connected':
-        // No action needed — Twilio confirms WebSocket is open
         this.logger.log('[TwilioGateway] Stream connected');
         break;
 
@@ -145,6 +144,7 @@ export class TwilioGateway implements OnGatewayConnection, OnGatewayDisconnect {
         if (msg.media?.payload && adapter.streamSid) {
           const audio = Buffer.from(msg.media.payload, 'base64');
           this.audioDriverService.feedAudio(adapter.streamSid, audio);
+          this.recordings.get(adapter.streamSid)?.chunks.push(audio);
         }
         break;
 
@@ -152,6 +152,7 @@ export class TwilioGateway implements OnGatewayConnection, OnGatewayDisconnect {
         this.logger.log(`[TwilioGateway] Stream stopped: ${adapter.streamSid}`);
         if (adapter.streamSid) {
           this.audioDriverService.endSession(adapter.streamSid);
+          this.flushRecording(adapter.streamSid);
         }
         this.assistantService.cleanupSession(adapter);
         this.adapters.delete(socket);
@@ -171,25 +172,34 @@ export class TwilioGateway implements OnGatewayConnection, OnGatewayDisconnect {
       `[TwilioGateway] Stream start — streamSid=${adapter.streamSid} callSid=${startPayload.callSid} business=${business}`,
     );
 
-    // ── 1. Create AssistantService session (uses adapter as "client" key) ──
+    if (business === 'lovebyt') {
+      this.recordings.set(adapter.streamSid, { chunks: [], startedAt: Date.now() });
+    }
+
     this.assistantService.initializeSession(adapter);
 
-    // ── 2. Start Google STT with Twilio's audio format (mulaw 8 kHz) ──────
     this.audioDriverService.startSession(
       adapter.streamSid,
       {
         onTranscript: (text) => this.assistantService.onTranscriptReady(adapter, text),
-        onBargeIn: () => this.assistantService.handleBargeIn(adapter),
+        // lovebyt is a forceful delivery agent — never interrupt TTS mid-stream
+        onBargeIn: business === 'lovebyt' ? () => {} : () => this.assistantService.handleBargeIn(adapter),
       },
       { encoding: 'MULAW', sampleRateHertz: 8000 },
     );
 
-    // ── 3. Configure agent type and trigger opening greeting ──────────────
     this.assistantService.initiateAgentState(adapter, {
       model: 'models/gemini-3.1-flash-lite',
       voice,
       business,
       systemInstruction: { parts: [{ text: systemInstruction }] },
     });
+  }
+
+  private flushRecording(streamSid: string): void {
+    const record = this.recordings.get(streamSid);
+    if (!record) return;
+    saveLovebytRecording(streamSid, record.chunks, record.startedAt);
+    this.recordings.delete(streamSid);
   }
 }

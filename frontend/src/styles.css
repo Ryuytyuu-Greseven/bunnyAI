@@ -297,7 +297,8 @@ body {
 }
 
 .input-group select,
-.input-group textarea {
+.input-group textarea,
+.input-group input[type="text"] {
   width: 100%;
   background-color: var(--bg-input);
   border: 1px solid var(--border-color);
@@ -311,9 +312,18 @@ body {
 }
 
 .input-group select:focus,
-.input-group textarea:focus {
+.input-group textarea:focus,
+.input-group input[type="text"]:focus {
   border-color: var(--border-active);
   box-shadow: 0 0 0 3px var(--yellow-glow);
+}
+
+.input-group select:disabled,
+.input-group textarea:disabled,
+.input-group input[type="text"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background-color: rgba(18, 18, 16, 0.5);
 }
 
 .input-group textarea {
@@ -321,6 +331,31 @@ body {
   resize: none;
   font-size: 0.85rem;
   line-height: 1.5;
+}
+
+.radio-group {
+  display: flex;
+  gap: 1rem;
+  margin: 0.5rem 0;
+  align-items: center;
+}
+
+.radio-group label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 400;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  text-transform: none;
+  cursor: pointer;
+}
+
+.radio-group input[type="radio"] {
+  accent-color: var(--color-violet);
+  width: 1.1rem;
+  height: 1.1rem;
+  cursor: pointer;
 }
 
 /* Buttons */

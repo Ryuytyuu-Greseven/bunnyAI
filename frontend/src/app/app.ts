@@ -1,5 +1,5 @@
-import { Component, ElementRef, ViewChild, HostListener, AfterViewInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
-import { NgClass } from '@angular/common';
+import { Component, ElementRef, ViewChild, HostListener, OnInit, AfterViewInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
+import { NgClass, NgIf } from '@angular/common';
 import { FormGroup, FormControl, ReactiveFormsModule } from '@angular/forms';
 import { MicVAD } from '@ricky0123/vad-web';
 import { environment } from '../environments/environment';
@@ -21,19 +21,32 @@ interface ChatMessage {
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [NgClass, ReactiveFormsModule],
+  imports: [NgClass, NgIf, ReactiveFormsModule],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })
-export class App implements AfterViewInit, OnDestroy {
+export class App implements OnInit, AfterViewInit, OnDestroy {
   // Config Form (Reactive Form)
   configForm = new FormGroup({
-    voice: new FormControl('Aoede'),
+    voice: new FormControl('Callirrhoe'),
     systemInstruction: new FormControl("You are Lyre AI, a brilliant, friendly, and helpful real-time AI assistant. Respond conversationally, keep your responses concise, and adapt dynamically to the user's tone."),
-    business: new FormControl('Customer Success'),
+    business: new FormControl('lovebyt'),
+    countryCode: new FormControl('+91'),
+    mobileNumber: new FormControl(''),
+    connectionMode: new FormControl('connect'),
   });
 
   constructor(private cdr: ChangeDetectorRef) { }
+
+  ngOnInit() {
+    this.configForm.get('business')?.valueChanges.subscribe(val => {
+      if (val === 'lovebyt') {
+        this.configForm.get('systemInstruction')?.disable();
+      } else {
+        this.configForm.get('systemInstruction')?.enable();
+      }
+    });
+  }
 
   // UI states
   isConnected = false;
@@ -141,6 +154,64 @@ export class App implements AfterViewInit, OnDestroy {
         container.scrollTop = container.scrollHeight;
       }
     }, 50);
+  }
+
+  async call() {
+    const code = this.configForm.value.countryCode || '+91';
+    const num = this.configForm.value.mobileNumber?.trim();
+    if (!num) {
+      this.log('Please enter a valid mobile number to call.', 'error');
+      return;
+    }
+    const to = `${code}${num}`;
+
+    const voice = this.configForm.value.voice || 'Aoede';
+    const systemInstruction = this.configForm.value.systemInstruction || '';
+    const business = this.configForm.value.business || 'Customer Success';
+
+    try {
+      this.log(`Initiating outbound call to ${to}...`, 'info');
+      this.updateStatus('connecting', 'Calling...');
+      this.isConnecting = true;
+      this.configForm.disable();
+
+      const baseUrl = environment.wsUrl.replace('ws://', 'http://').replace('wss://', 'https://').replace('/ws', '');
+      const apiUrl = `${baseUrl}/twilio/call`;
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          to,
+          business,
+          voice,
+          systemInstruction,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Server returned status ${response.status}`);
+      }
+
+      const data = await response.json();
+      this.log(`Call initiated successfully. Call SID: ${data.callSid}`, 'success');
+      this.updateStatus('offline', 'Call Dispatched');
+      
+      // Reset state so the user can make another call without reloading the page
+      this.isConnected = false;
+      this.isConnecting = false;
+      this.configForm.enable();
+      this.cdr.detectChanges();
+
+    } catch (error: any) {
+      this.log(`Failed to initiate call: ${error.message}`, 'error');
+      this.updateStatus('offline', 'Disconnected');
+      this.isConnecting = false;
+      this.configForm.enable();
+      this.cdr.detectChanges();
+    }
   }
 
   // Establish real-time session

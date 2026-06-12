@@ -29,6 +29,7 @@ export const agentGraph = workflow.compile();
 export * from './sales/graph/sales.graph';
 export * from './insurance/graph/insurance.graph';
 export * from './customer-support/graph/customer-support.graph';
+export * from './lovebyt/graph/lovebyt.graph';
 export * from './customer-success.graph';
 export * from './implementation.graph';
 export * from './alerting/graph/alerting.graph';

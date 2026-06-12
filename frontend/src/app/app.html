@@ -12,7 +12,7 @@
     </div>
     <p class="tagline">Multimodal Real-Time AI Voice Assistant</p>
   </header>
-  
+
   <!-- Floating Top Left Back Button -->
   <button class="top-left-back-btn" (click)="navigateHome()">
     <span class="btn-icon">←</span> Lyre AI
@@ -34,6 +34,7 @@
           <option value="Alerting">Alerting</option>
           <option value="Hiring">Hiring</option>
           <option value="Credit Cards">Credit Cards</option>
+          <option value="lovebyt">Lovebyt</option>
         </select>
       </div>
 
@@ -46,6 +47,7 @@
           <option value="Kore">Kore (Friendly Female)</option>
           <option value="Fenrir">Fenrir (Deep Male)</option>
           <option value="Aoede">Aoede (Expressive Female)</option>
+          <option value="Callirrhoe">Madhuri (Female)</option>
         </select>
       </div>
 
@@ -55,11 +57,37 @@
           placeholder="Define the AI's behavior, role, or background..."></textarea>
       </div>
 
+      <div class="input-group">
+        <label>Connection Mode</label>
+        <div class="radio-group">
+          <label>
+            <input type="radio" formControlName="connectionMode" value="connect"> Web Connection
+          </label>
+          <label>
+            <input type="radio" formControlName="connectionMode" value="call"> Phone Call
+          </label>
+        </div>
+      </div>
+
+      <div class="input-group" *ngIf="configForm.getRawValue().connectionMode === 'call'">
+        <label for="mobile-number">Mobile Number (For Call)</label>
+        <div style="display: flex; gap: 0.5rem;">
+          <select formControlName="countryCode" style="width: 90px; flex-shrink: 0;">
+            <option value="+1">🇺🇸 +1</option>
+            <option value="+91">🇮🇳 +91</option>
+          </select>
+          <input id="mobile-number" type="text" formControlName="mobileNumber" placeholder="1234567890" style="flex-grow: 1;">
+        </div>
+      </div>
+
       <div class="button-row">
-        <button id="connect-btn" class="btn btn-primary" [disabled]="isConnected || isConnecting" (click)="connect()">
+        <button *ngIf="configForm.getRawValue().connectionMode === 'connect'" id="connect-btn" class="btn btn-primary" [disabled]="isConnected || isConnecting" (click)="connect()">
           <span class="btn-icon">⚡</span> Connect
         </button>
-        <button id="disconnect-btn" class="btn btn-danger" [disabled]="!isConnected" (click)="disconnect()">
+        <button *ngIf="configForm.getRawValue().connectionMode === 'call'" id="call-btn" class="btn btn-success" [disabled]="isConnected || isConnecting" (click)="call()">
+          <span class="btn-icon">📞</span> Call
+        </button>
+        <button *ngIf="configForm.getRawValue().connectionMode === 'connect'" id="disconnect-btn" class="btn btn-danger" [disabled]="!isConnected" (click)="disconnect()">
           <span class="btn-icon">✖</span> Disconnect
         </button>
       </div>

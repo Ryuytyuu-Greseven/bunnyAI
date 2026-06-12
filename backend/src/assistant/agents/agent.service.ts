@@ -10,6 +10,7 @@ import {
   alertingGraph,
   hiringGraph,
   creditCardsGraph,
+  lovebytGraph,
 } from './graphs/graph';
 import { SharedAiService } from '../services/shared-ai.service';
 import { UserConfig } from '../types/assistant.types';
@@ -39,6 +40,8 @@ export class AgentService {
         return hiringGraph;
       case 'credit cards':
         return creditCardsGraph;
+      case 'lovebyt':
+        return lovebytGraph;
       default:
         return agentGraph;
     }

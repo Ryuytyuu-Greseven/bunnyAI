@@ -341,12 +341,22 @@ CRITICAL RULES:
             this.logger.log('TTS Stream fully closed.');
           });
 
+          let languageCode = 'en-US';
+          let voiceModel = 'en-US-Chirp3-HD-';
+          voiceModel += voice;
+
+          // only for lovebyt
+          if (voice === 'Callirrhoe') {
+            languageCode = 'en-US';
+            voiceModel = 'en-US-Chirp-HD-F';
+          }
+
           // 3. Send initial configuration chunk
           ttsStream.write({
             streamingConfig: {
               voice: {
-                languageCode: 'en-US',
-                name: `en-US-Chirp3-HD-${voice}`,
+                languageCode,
+                name: voiceModel,
               },
               audioConfig: {
                 audioEncoding: 'LINEAR16', // Raw PCM audio

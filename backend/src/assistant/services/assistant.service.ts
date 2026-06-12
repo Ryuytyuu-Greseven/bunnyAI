@@ -54,9 +54,11 @@ export class AssistantService {
         const { creditCardCheckpointer } = require('../agents/graphs/creditcards/graph/creditcard.graph');
         const { salesCheckpointer } = require('../agents/graphs/sales/graph/sales.graph');
         const { customerSupportCheckpointer } = require('../agents/graphs/customer-support/graph/customer-support.graph');
+        const { lovebytCheckpointer } = require('../agents/graphs/lovebyt/graph/lovebyt.graph');
         creditCardCheckpointer.storage = {};
         salesCheckpointer.storage = {};
         customerSupportCheckpointer.storage = {};
+        lovebytCheckpointer.storage = {};
       } catch (e) {
         this.logger.error('Error clearing LangGraph checkpointer:', e);
       }

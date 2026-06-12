@@ -63,7 +63,8 @@ export class TwilioService {
       url: `${webhookBase}/twilio/voice?${params.toString()}`,
       statusCallback: `${webhookBase}/twilio/status`,
       statusCallbackMethod: 'POST',
-      statusCallbackEvent: ['initiated', 'ringing', 'completed', 'answered']
+      statusCallbackEvent: ['initiated', 'ringing', 'completed', 'answered'],
+      record: false,
     });
 
     this.logger.log(`Outbound call created: ${call.sid} → ${to}`);
