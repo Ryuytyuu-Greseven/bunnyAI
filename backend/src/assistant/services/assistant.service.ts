@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { SharedAiService } from './shared-ai.service';
 import { SessionState } from '../types/assistant.types';
 import { AgentService } from '../agents/agent.service';
+import { FirebaseService } from '../../firebase/firebase.service';
 import { randomUUID } from 'crypto';
 
 @Injectable()
@@ -13,6 +14,7 @@ export class AssistantService {
   constructor(
     private readonly sharedAiService: SharedAiService,
     private readonly agentService: AgentService,
+    private readonly firebaseService: FirebaseService,
   ) {}
 
   // ─── Session lifecycle ────────────────────────────────────────────────────
@@ -120,6 +122,14 @@ export class AssistantService {
       client.send(JSON.stringify({ userContent: { text } }));
     }
 
+    // Persist the user's message
+    void this.firebaseService.saveMessage(
+      session.sessionId,
+      'user',
+      text,
+      session.config.business ?? 'unknown',
+    );
+
     session.queryQueue.push(text);
     this.processQueryQueue(client, session);
   }
@@ -135,11 +145,13 @@ export class AssistantService {
     try {
       this.logger.log(`[LLM] Processing: "${queryText}"`);
 
-      const responseStream = this.agentService.runAgent(
+      // Wrap the agent stream so we can accumulate the full AI text for storage
+      const rawStream = this.agentService.runAgent(
         queryText,
         session.config,
         session.sessionId,
       );
+      const { stream: responseStream, getText } = this.captureTextStream(rawStream);
 
       await this.sharedAiService.textToSpeech(
         responseStream,
@@ -148,6 +160,17 @@ export class AssistantService {
         session,
         client,
       );
+
+      // Persist the assistant's full reply after TTS completes
+      const aiText = getText();
+      if (aiText && queryText !== 'SYSTEM_START_CONVERSATION') {
+        void this.firebaseService.saveMessage(
+          session.sessionId,
+          'assistant',
+          aiText,
+          session.config.business ?? 'unknown',
+        );
+      }
     } catch (err: any) {
       this.logger.error('Error in LLM/TTS pipeline:', err);
       if (client.readyState === WebSocket.OPEN) {
@@ -156,6 +179,26 @@ export class AssistantService {
     } finally {
       this.processQueryQueue(client, session);
     }
+  }
+
+  /**
+   * Wraps an async generator so callers can still iterate it normally while
+   * we silently accumulate the text yielded by each chunk.
+   * getText() returns the concatenated result after the stream is exhausted.
+   */
+  private captureTextStream(source: AsyncGenerator<{ text: string }>): {
+    stream: AsyncGenerator<{ text: string }>;
+    getText: () => string;
+  } {
+    let accumulated = '';
+    const stream = (async function* () {
+      for await (const chunk of source) {
+        const t = typeof chunk?.text === 'string' ? chunk.text : (chunk as any)?.content ?? '';
+        if (t) accumulated += t;
+        yield chunk;
+      }
+    })();
+    return { stream, getText: () => accumulated };
   }
 
   // Streams synthesized audio and text chunks back to the WebSocket client
