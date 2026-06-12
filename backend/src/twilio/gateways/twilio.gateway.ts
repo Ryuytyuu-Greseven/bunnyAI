@@ -6,8 +6,11 @@ import {
 import { Logger } from '@nestjs/common';
 import { AssistantService } from '../../assistant/services/assistant.service';
 import { AudioDriverService } from '../../assistant/services/audio-driver.service';
+import { TwilioService } from '../twilio.service';
 import { convertTtsForTwilio } from '../utils/audio.util';
 import { saveLovebytRecording } from '../../assistant/agents/graphs/lovebyt/graph/lovebyt.graph';
+
+const CALL_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
 
 interface AudioRecord {
   chunks: Buffer[];
@@ -30,6 +33,7 @@ interface AudioRecord {
  */
 class TwilioClientAdapter {
   public streamSid = '';
+  public callSid = '';
 
   constructor(private readonly socket: any) { }
 
@@ -90,10 +94,13 @@ export class TwilioGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly adapters = new Map<any, TwilioClientAdapter>();
   // streamSid → accumulated audio (lovebyt sessions only)
   private readonly recordings = new Map<string, AudioRecord>();
+  // streamSid → auto-hangup timer handle
+  private readonly callTimers = new Map<string, NodeJS.Timeout>();
 
   constructor(
     private readonly assistantService: AssistantService,
     private readonly audioDriverService: AudioDriverService,
+    private readonly twilioService: TwilioService,
   ) { }
 
   handleConnection(socket: any): void {
@@ -120,6 +127,7 @@ export class TwilioGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (!adapter) return;
 
     if (adapter.streamSid) {
+      this.clearCallTimer(adapter.streamSid);
       this.audioDriverService.endSession(adapter.streamSid);
       this.flushRecording(adapter.streamSid);
     }
@@ -151,6 +159,7 @@ export class TwilioGateway implements OnGatewayConnection, OnGatewayDisconnect {
       case 'stop':
         this.logger.log(`[TwilioGateway] Stream stopped: ${adapter.streamSid}`);
         if (adapter.streamSid) {
+          this.clearCallTimer(adapter.streamSid);
           this.audioDriverService.endSession(adapter.streamSid);
           this.flushRecording(adapter.streamSid);
         }
@@ -162,6 +171,7 @@ export class TwilioGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private onStreamStart(adapter: TwilioClientAdapter, startPayload: any): void {
     adapter.streamSid = startPayload.streamSid;
+    adapter.callSid = startPayload.callSid;
     const params: Record<string, string> = startPayload.customParameters ?? {};
 
     const business = params.business ?? 'sales';
@@ -169,12 +179,15 @@ export class TwilioGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const systemInstruction = params.systemInstruction ?? '';
 
     this.logger.log(
-      `[TwilioGateway] Stream start — streamSid=${adapter.streamSid} callSid=${startPayload.callSid} business=${business}`,
+      `[TwilioGateway] Stream start — streamSid=${adapter.streamSid} callSid=${adapter.callSid} business=${business}`,
     );
 
     if (business === 'lovebyt') {
       this.recordings.set(adapter.streamSid, { chunks: [], startedAt: Date.now() });
     }
+
+    // Auto-hangup after 2 minutes to protect Twilio balance
+    this.scheduleHangup(adapter.streamSid, adapter.callSid);
 
     this.assistantService.initializeSession(adapter);
 
@@ -183,7 +196,7 @@ export class TwilioGateway implements OnGatewayConnection, OnGatewayDisconnect {
       {
         onTranscript: (text) => this.assistantService.onTranscriptReady(adapter, text),
         // lovebyt is a forceful delivery agent — never interrupt TTS mid-stream
-        onBargeIn: business === 'lovebyt' ? () => {} : () => this.assistantService.handleBargeIn(adapter),
+        onBargeIn: business === 'lovebyt' ? () => { } : () => this.assistantService.handleBargeIn(adapter),
       },
       { encoding: 'MULAW', sampleRateHertz: 8000 },
     );
@@ -194,6 +207,28 @@ export class TwilioGateway implements OnGatewayConnection, OnGatewayDisconnect {
       business,
       systemInstruction: { parts: [{ text: systemInstruction }] },
     });
+  }
+
+  private scheduleHangup(streamSid: string, callSid: string): void {
+    const timer = setTimeout(async () => {
+      this.logger.log(`[TwilioGateway] 2-minute limit reached — hanging up ${callSid}`);
+      this.callTimers.delete(streamSid);
+      try {
+        await this.twilioService.endCall(callSid);
+      } catch (err: any) {
+        this.logger.error(`[TwilioGateway] Failed to hang up ${callSid}: ${err.message}`);
+      }
+    }, CALL_TIMEOUT_MS);
+
+    this.callTimers.set(streamSid, timer);
+  }
+
+  private clearCallTimer(streamSid: string): void {
+    const timer = this.callTimers.get(streamSid);
+    if (timer) {
+      clearTimeout(timer);
+      this.callTimers.delete(streamSid);
+    }
   }
 
   private flushRecording(streamSid: string): void {
