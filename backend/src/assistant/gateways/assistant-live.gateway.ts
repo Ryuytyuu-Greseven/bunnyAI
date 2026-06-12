@@ -13,7 +13,7 @@ interface SessionState {
   pendingMessages: any[];
 }
 
-@WebSocketGateway({ path: '/ws-old' })
+@WebSocketGateway({ path: '/ws-old', cors: true })
 export class AssistantLiveGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {

@@ -88,7 +88,7 @@ class TwilioClientAdapter {
  * Configure your Twilio number's Voice webhook to POST to /twilio/voice.
  * The controller responds with TwiML that points Stream url="wss://…/twilio".
  */
-@WebSocketGateway({ path: '/twilio' })
+@WebSocketGateway({ path: '/twilio', cors: true })
 export class TwilioGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(TwilioGateway.name);
   private readonly adapters = new Map<any, TwilioClientAdapter>();

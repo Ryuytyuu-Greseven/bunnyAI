@@ -6,7 +6,7 @@ import {
 import { AssistantService } from '../services/assistant.service';
 import { AudioDriverService } from '../services/audio-driver.service';
 
-@WebSocketGateway({ path: '/ws' })
+@WebSocketGateway({ path: '/ws', cors: true })
 export class AssistantGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
