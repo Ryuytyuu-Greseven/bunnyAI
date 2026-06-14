@@ -23,7 +23,7 @@
 
 ## Description
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+A framework to build Enterprise Voice Assistants.
 
 ## Project setup
 
