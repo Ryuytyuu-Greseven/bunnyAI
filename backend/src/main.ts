@@ -5,9 +5,7 @@ import { WsAdapter } from '@nestjs/platform-ws';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  const allowedOrigins = process.env.TWILIO_WEBHOOK_URL
-    ? process.env.TWILIO_WEBHOOK_URL.split(',').map((o) => o.trim())
-    : true;
+  const allowedOrigins = ['https://playground.lyreai.life', 'https://playground.lyreai.in'].map((o) => o.trim());
 
   app.enableCors({
     origin: allowedOrigins,
