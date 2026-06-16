@@ -9,6 +9,7 @@ import { OpenAiService } from './services/openai.service';
 import { SharedAiService } from './services/shared-ai.service';
 import { AgentService } from './agents/agent.service';
 import { McpController } from './mcp.controller';
+import { DeepGram } from './stt/deepgram/transcribe';
 
 @Module({
   controllers: [
@@ -24,6 +25,7 @@ import { McpController } from './mcp.controller';
     OpenAiService,
     SharedAiService,
     AgentService,
+    DeepGram,
   ],
   exports: [
     AssistantGateway,
@@ -35,6 +37,7 @@ import { McpController } from './mcp.controller';
     OpenAiService,
     SharedAiService,
     AgentService,
+    DeepGram,
   ],
 })
-export class AssistantModule {}
+export class AssistantModule { }

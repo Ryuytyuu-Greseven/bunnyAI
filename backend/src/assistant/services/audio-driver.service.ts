@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { v2 } from '@google-cloud/speech';
+import { DeepGram } from '../stt/deepgram/transcribe';
 
 export interface AudioDriverCallbacks {
   onTranscript: (text: string) => void;
@@ -48,7 +49,9 @@ export class AudioDriverService {
   private readonly recognizerPath: string;
   private readonly sessions = new Map<string, AudioSession>();
 
-  constructor(private readonly configService: ConfigService) {
+  private STT_SERVICE = 'deepgram';
+
+  constructor(private readonly configService: ConfigService, private readonly deepgramService: DeepGram) {
     const location =
       configService.get<string>('GOOGLE_CLOUD_LOCATION_IN') || 'global';
 
@@ -68,11 +71,11 @@ export class AudioDriverService {
 
   // ─── Public API ──────────────────────────────────────────────────────────────
 
-  startSession(
+  async startSession(
     sessionId: string,
     callbacks: AudioDriverCallbacks,
     audioConfig?: AudioSessionConfig,
-  ): void {
+  ) {
     const session: AudioSession = {
       stream: null,
       silenceTimer: null,
@@ -82,7 +85,11 @@ export class AudioDriverService {
       sampleRateHertz: audioConfig?.sampleRateHertz ?? 16000,
     };
     this.sessions.set(sessionId, session);
-    this.openStream(sessionId, session);
+    if (this.STT_SERVICE === 'deepgram') {
+      await this.deepgramService.openConnection(sessionId, session)
+    } else {
+      this.openStream(sessionId, session);
+    }
     this.logger.log(`[AudioDriver] Session started: ${sessionId}`);
   }
 
@@ -91,18 +98,22 @@ export class AudioDriverService {
    * No barge-in or silence logic here — audio is just piped to Google.
    * All speech detection is driven by Google's transcript events.
    */
-  feedAudio(sessionId: string, audio: Buffer): void {
+  feedAudio(sessionId: string, audio: any): void {
     const session = this.sessions.get(sessionId);
     if (!session) return;
 
-    if (session.stream && !session.stream.destroyed && session.stream.writable) {
-      try {
-        session.stream.write({ audio });
-      } catch (err: any) {
-        this.logger.error(
-          `[AudioDriver] Write error, reopening stream: ${err.message}`,
-        );
-        this.openStream(sessionId, session);
+    if (this.STT_SERVICE === 'deepgram') {
+      this.deepgramService.feedAudio(sessionId, audio, session)
+    } else {
+      if (session.stream && !session.stream.destroyed && session.stream.writable) {
+        try {
+          session.stream.write({ audio });
+        } catch (err: any) {
+          this.logger.error(
+            `[AudioDriver] Write error, reopening stream: ${err.message}`,
+          );
+          this.openStream(sessionId, session);
+        }
       }
     }
   }
@@ -110,8 +121,12 @@ export class AudioDriverService {
   endSession(sessionId: string): void {
     const session = this.sessions.get(sessionId);
     if (!session) return;
-    this.clearSilenceTimer(session);
-    this.destroyStream(session);
+    if (this.STT_SERVICE === 'deepgram') {
+      this.deepgramService.closeConnection(sessionId);
+    } else {
+      this.clearSilenceTimer(session);
+      this.destroyStream(session);
+    }
     this.sessions.delete(sessionId);
     this.logger.log(`[AudioDriver] Session ended: ${sessionId}`);
   }

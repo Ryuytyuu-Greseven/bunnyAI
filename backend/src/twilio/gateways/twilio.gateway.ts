@@ -169,7 +169,7 @@ export class TwilioGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
-  private onStreamStart(adapter: TwilioClientAdapter, startPayload: any): void {
+  private async onStreamStart(adapter: TwilioClientAdapter, startPayload: any) {
     adapter.streamSid = startPayload.streamSid;
     adapter.callSid = startPayload.callSid;
     const params: Record<string, string> = startPayload.customParameters ?? {};
@@ -191,7 +191,7 @@ export class TwilioGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     this.assistantService.initializeSession(adapter);
 
-    this.audioDriverService.startSession(
+    await this.audioDriverService.startSession(
       adapter.streamSid,
       {
         onTranscript: (text) => this.assistantService.onTranscriptReady(adapter, text),

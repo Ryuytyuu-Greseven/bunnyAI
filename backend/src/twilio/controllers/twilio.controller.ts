@@ -1,6 +1,7 @@
 import { Controller, Post, Body, Query, Res, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TwilioService } from '../twilio.service';
+import { ExotelService } from '../../exotel/exotel.service';
 
 @Controller('twilio')
 export class TwilioController {
@@ -8,6 +9,7 @@ export class TwilioController {
 
   constructor(
     private readonly twilioService: TwilioService,
+    private readonly exotelService: ExotelService,
     private readonly configService: ConfigService,
   ) { }
 
@@ -69,15 +71,29 @@ export class TwilioController {
       systemInstruction?: string;
       from?: string;
     },
-  ): Promise<{ callSid: string }> {
-    this.logger.log('We are initiating a call for you:', body);
+  ): Promise<{ callSid: string; provider: string }> {
+    // const provider = resolveProvider(body.to);
+    const provider = 'twilio';
+    this.logger.log(`Initiating call to ${body.to} via ${provider}`);
+
+    // if (provider === 'exotel') {
+    //   const callSid = await this.exotelService.makeOutboundCall(body.to, {
+    //     business: body.business,
+    //     voice: body.voice,
+    //     systemInstruction: body.systemInstruction,
+    //   }).catch((eeor) => {
+    //     this.logger.log('Exceprion');
+    //   });
+    //   return { callSid: '', provider };
+    // }
+
     const callSid = await this.twilioService.makeOutboundCall(body.to, {
       business: body.business,
       voice: body.voice,
       systemInstruction: body.systemInstruction,
       from: body.from,
     });
-    return { callSid };
+    return { callSid, provider };
   }
 
   @Post('/health')
@@ -88,3 +104,9 @@ export class TwilioController {
     return { success: true };
   }
 }
+
+/** Route to Exotel for India (+91), Twilio for US (+1) and everywhere else. */
+// function resolveProvider(to: string): 'twilio' | 'exotel' {
+//   if (to.startsWith('+91')) return 'exotel';
+//   return 'twilio';
+// }

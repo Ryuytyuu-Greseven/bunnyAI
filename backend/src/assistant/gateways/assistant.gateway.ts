@@ -8,21 +8,20 @@ import { AudioDriverService } from '../services/audio-driver.service';
 
 @WebSocketGateway({ path: '/ws', cors: true })
 export class AssistantGateway
-  implements OnGatewayConnection, OnGatewayDisconnect
-{
+  implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(
     private readonly assistantService: AssistantService,
     private readonly audioDriverService: AudioDriverService,
-  ) {}
+  ) { }
 
-  handleConnection(client: any): void {
+  async handleConnection(client: any) {
     // 1. Create session state (config, queue, etc.)
     this.assistantService.initializeSession(client);
 
     // 2. Start the audio driver — keyed by sessionId so it's independent of the WS socket object
     const sessionId = this.assistantService.getSessionId(client);
     if (sessionId) {
-      this.audioDriverService.startSession(sessionId, {
+      await this.audioDriverService.startSession(sessionId, {
         onTranscript: (text) => this.assistantService.onTranscriptReady(client, text),
         onBargeIn: () => this.assistantService.handleBargeIn(client),
       });
