@@ -72,9 +72,8 @@
       <div class="input-group" *ngIf="configForm.getRawValue().connectionMode === 'call'">
         <label for="mobile-number">Mobile Number (For Call)</label>
         <div style="display: flex; gap: 0.5rem;">
-          <select formControlName="countryCode" style="width: 90px; flex-shrink: 0;">
-            <option value="+1">🇺🇸 +1</option>
-            <option value="+91">🇮🇳 +91</option>
+          <select formControlName="countryCode" style="width: 100px; flex-shrink: 0; font-size: 0.75rem;">
+            <option *ngFor="let country of countryCodes" [value]="country.code">{{ country.flag }} {{ country.name }} ({{ country.code }})</option>
           </select>
           <input id="mobile-number" type="text" formControlName="mobileNumber" placeholder="1234567890" style="flex-grow: 1;">
         </div>

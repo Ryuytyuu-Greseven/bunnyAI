@@ -1,8 +1,9 @@
 import { Component, ElementRef, ViewChild, HostListener, OnInit, AfterViewInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
-import { NgClass, NgIf } from '@angular/common';
+import { NgClass, NgIf, NgFor } from '@angular/common';
 import { FormGroup, FormControl, ReactiveFormsModule } from '@angular/forms';
 import { MicVAD } from '@ricky0123/vad-web';
 import { environment } from '../environments/environment';
+import { COUNTRY_CODES } from './country-codes';
 
 interface ConsoleLog {
   id: number;
@@ -21,7 +22,7 @@ interface ChatMessage {
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [NgClass, NgIf, ReactiveFormsModule],
+  imports: [NgClass, NgIf, NgFor, ReactiveFormsModule],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })
@@ -35,6 +36,8 @@ export class App implements OnInit, AfterViewInit, OnDestroy {
     mobileNumber: new FormControl(''),
     connectionMode: new FormControl('connect'),
   });
+
+  countryCodes = COUNTRY_CODES;
 
   constructor(private cdr: ChangeDetectorRef) { }
 
