@@ -3,7 +3,7 @@ import { UserConfig } from '../types/assistant.types';
 export interface IAiService {
   hasValidApiKey(): boolean;
   transcribeAudio(wavBuffer: Buffer, model: string): Promise<string>;
-  generateResponseStream(query: string, config: UserConfig): Promise<any>;
+  // generateResponseStream(query: string, config: UserConfig): Promise<any>;
   textToSpeech(
     llmStream: any,
     voice: string,

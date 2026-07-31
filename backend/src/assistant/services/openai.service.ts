@@ -30,26 +30,26 @@ export class OpenAiService implements IAiService {
     return new PassThrough({ objectMode: true });
   }
 
-  public async generateResponseStream(
-    query: string,
-    config: UserConfig,
-  ): Promise<any> {
-    this.logger.log(
-      `Generating response stream with OpenAI (stub) - query: "${query}"`,
-    );
+  // public async generateResponseStream(
+  //   query: string,
+  //   config: UserConfig,
+  // ): Promise<any> {
+  //   this.logger.log(
+  //     `Generating response stream with OpenAI (stub) - query: "${query}"`,
+  //   );
 
-    const mockChunks = [
-      {
-        text: `[en]: Hello! This is a mock response from OpenAI service. You queried: "${query}".`,
-      },
-    ];
+  //   const mockChunks = [
+  //     {
+  //       text: `[en]: Hello! This is a mock response from OpenAI service. You queried: "${query}".`,
+  //     },
+  //   ];
 
-    return (async function* () {
-      for (const chunk of mockChunks) {
-        yield chunk;
-      }
-    })();
-  }
+  //   return (async function* () {
+  //     for (const chunk of mockChunks) {
+  //       yield chunk;
+  //     }
+  //   })();
+  // }
 
   public async textToSpeech(
     text: any,

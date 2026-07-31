@@ -68,18 +68,18 @@ export class SharedAiService implements IAiService {
     return service.createSttStream(onData, onError);
   }
 
-  public async generateResponseStream(
-    query: string,
-    config: UserConfig,
-  ): Promise<any> {
-    const defaultProvider =
-      this.configService.get<string>('AI_PROVIDER') || 'gemini';
-    const service = this.getProviderService(defaultProvider);
-    this.logger.log(
-      `Routing generateResponseStream to AI provider: ${defaultProvider}`,
-    );
-    return service.generateResponseStream(query, config);
-  }
+  // public async generateResponseStream(
+  //   query: string,
+  //   config: UserConfig,
+  // ): Promise<any> {
+  //   const defaultProvider =
+  //     this.configService.get<string>('AI_PROVIDER') || 'gemini';
+  //   const service = this.getProviderService(defaultProvider);
+  //   this.logger.log(
+  //     `Routing generateResponseStream to AI provider: ${defaultProvider}`,
+  //   );
+  //   return service.generateResponseStream(query, config);
+  // }
 
   public async textToSpeech(
     llmStream: any,

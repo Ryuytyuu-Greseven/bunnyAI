@@ -1,25 +1,47 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { GoogleGenAI } from '@google/genai';
+// import { GoogleGenAI } from '@google/genai';
 import { v2 } from '@google-cloud/speech';
 import { TextToSpeechClient } from '@google-cloud/text-to-speech';
 import { UserConfig } from '../types/assistant.types';
 import { IAiService } from '../interfaces/ai.interface';
+import { ChatVertexAI } from '@langchain/google-vertexai';
 
 @Injectable()
 export class GeminiService implements IAiService {
   private readonly logger = new Logger(GeminiService.name);
-  private genAi: GoogleGenAI;
+  private genAi: ChatVertexAI;
   private readonly apiKey: string | undefined;
   private readonly speechClient: v2.SpeechClient;
   private readonly ttsClient: TextToSpeechClient;
 
   constructor(private configService: ConfigService) {
     this.apiKey = this.configService.get<string>('GEMINI_API_KEY');
-    this.genAi = new GoogleGenAI({
+    // this.genAi = new GoogleGenAI({
+    //   vertexai: true,
+    //   apiKey: this.apiKey,
+    // });
+    this.genAi = new ChatVertexAI({
+      // vertexai:true authenticates via Application Default Credentials (service account /
+      // `gcloud auth application-default login`) — a Gemini API key is not a valid credential
+      // against the aiplatform.googleapis.com endpoint and would override ADC if set here.
+      apiKey: process.env.GEMINI_API_KEY,
+      modelName: 'gemini-3.1-flash-lite',
+      // location: 'us-central1',
+      temperature: 0.1,
+      thinkingLevel: 'LOW',
+      cache: true,
+      // Streaming must stay OFF for Gemini 3 tool calling: when the response is
+      // streamed, the per-part `thoughtSignature` values get misaligned during
+      // chunk concatenation, so the library drops them on the next request and
+      // Vertex rejects the follow-up call with "Function call is missing a
+      // thought_signature". Non-streaming keeps parts↔signatures aligned.
+      disableStreaming: true,
+      reasoningLevel: 'low',
+      streaming: false,
       vertexai: true,
-      apiKey: this.apiKey,
     });
+
     const location =
       this.configService.get<string>('GOOGLE_CLOUD_LOCATION_IN') || 'global';
     this.speechClient = new v2.SpeechClient({
@@ -173,127 +195,127 @@ export class GeminiService implements IAiService {
     return stream;
   }
 
-  public async geminiTranscribe(
-    wavBuffer: Buffer,
-    model: string,
-  ): Promise<string> {
-    const startTime = Date.now();
-    const base64Data = wavBuffer.toString('base64');
-    const apiModel = this.mapModelName(model);
+  // public async geminiTranscribe(
+  //   wavBuffer: Buffer,
+  //   model: string,
+  // ): Promise<string> {
+  //   const startTime = Date.now();
+  //   const base64Data = wavBuffer.toString('base64');
+  //   const apiModel = this.mapModelName(model);
 
-    const response = await this.genAi.models.generateContent({
-      model: apiModel,
-      contents: [
-        {
-          text:
-            'You are an audio transcriber. Listen carefully. If the audio contains only background noise, ' +
-            'static, breath, hums, or silence, the transcript property MUST be an empty string.' +
-            'Do not hallucinate the words, just transcribe what you hear. Always make sure no over thinking or hallusinating. You shall transcribe the words as it is and never change words to other words.' +
-            "Never output timestamps or strings like '00:00' under any circumstances.",
-        },
-        {
-          inlineData: {
-            mimeType: 'audio/wav',
-            data: base64Data,
-          },
-        },
-      ],
-    });
-    const duration = Date.now() - startTime;
-    if (response.text) {
-      this.logger.log(
-        `User Voice is transcribed (Gemini): ${response.text} in ${duration}ms`,
-      );
-    }
+  //   const response = await this.genAi.models.generateContent({
+  //     model: apiModel,
+  //     contents: [
+  //       {
+  //         text:
+  //           'You are an audio transcriber. Listen carefully. If the audio contains only background noise, ' +
+  //           'static, breath, hums, or silence, the transcript property MUST be an empty string.' +
+  //           'Do not hallucinate the words, just transcribe what you hear. Always make sure no over thinking or hallusinating. You shall transcribe the words as it is and never change words to other words.' +
+  //           "Never output timestamps or strings like '00:00' under any circumstances.",
+  //       },
+  //       {
+  //         inlineData: {
+  //           mimeType: 'audio/wav',
+  //           data: base64Data,
+  //         },
+  //       },
+  //     ],
+  //   });
+  //   const duration = Date.now() - startTime;
+  //   if (response.text) {
+  //     this.logger.log(
+  //       `User Voice is transcribed (Gemini): ${response.text} in ${duration}ms`,
+  //     );
+  //   }
 
-    return response.text?.trim() || '';
-  }
+  //   return response.text?.trim() || '';
+  // }
 
-  public async generateResponseStream(
-    query: string,
-    config: UserConfig,
-  ): Promise<any> {
-    const clientData = `
-CLIENT: Oracle HCM Support Assistant (Lyre AI)
-SCOPE: Help employees and HR administrators with Oracle HCM SaaS product inquiries.
-FAQ/KNOWLEDGE BASE:
-1. How to apply for leave?
-   - Navigate to 'Me' -> 'Time and Absence' -> 'Add Absence'. Select absence type, dates, and click Submit.
-2. How to view my payslip?
-   - Navigate to 'Me' -> 'Pay' -> 'My Payslips'. You can view or download payslips for any pay period.
-3. How to update personal info (address, phone)?
-   - Go to 'Me' -> 'Personal Information' -> 'Personal Details'. Click Edit on the section you want to update, enter the new details, and submit.
-4. Support Escalation:
-   - If an issue is unsolvable (e.g., payroll discrepancies, system errors), route the call to a live agent.
-`;
+  //   public async generateResponseStream(
+  //     query: string,
+  //     config: UserConfig,
+  //   ): Promise<any> {
+  //     const clientData = `
+  // CLIENT: Oracle HCM Support Assistant (Lyre AI)
+  // SCOPE: Help employees and HR administrators with Oracle HCM SaaS product inquiries.
+  // FAQ/KNOWLEDGE BASE:
+  // 1. How to apply for leave?
+  //    - Navigate to 'Me' -> 'Time and Absence' -> 'Add Absence'. Select absence type, dates, and click Submit.
+  // 2. How to view my payslip?
+  //    - Navigate to 'Me' -> 'Pay' -> 'My Payslips'. You can view or download payslips for any pay period.
+  // 3. How to update personal info (address, phone)?
+  //    - Go to 'Me' -> 'Personal Information' -> 'Personal Details'. Click Edit on the section you want to update, enter the new details, and submit.
+  // 4. Support Escalation:
+  //    - If an issue is unsolvable (e.g., payroll discrepancies, system errors), route the call to a live agent.
+  // `;
 
-    const finalSystemInstruction = `${config.systemInstruction}
+  //     const finalSystemInstruction = `${config.systemInstruction}
 
-Here is the CLIENT-SPECIFIC DATA you must use to answer the user's queries:
-${clientData}
+  // Here is the CLIENT-SPECIFIC DATA you must use to answer the user's queries:
+  // ${clientData}
 
-CRITICAL RULES:
-1. You must respond in the same language as the user's query. If the user speaks in English, Telugu, or Hindi, respond in that language.
-2. You must prefix your response with the language code in square brackets, followed by a colon.
-   - For English: [en]: <your response>
-   - For Telugu: [te]: <your response>
-   - For Hindi: [hi]: <your response>
-3. Keep your response concise (1-3 sentences maximum).
-4. If you cannot solve the user's query based on the client data, explain politely that you will connect them to a live agent.`;
+  // CRITICAL RULES:
+  // 1. You must respond in the same language as the user's query. If the user speaks in English, Telugu, or Hindi, respond in that language.
+  // 2. You must prefix your response with the language code in square brackets, followed by a colon.
+  //    - For English: [en]: <your response>
+  //    - For Telugu: [te]: <your response>
+  //    - For Hindi: [hi]: <your response>
+  // 3. Keep your response concise (1-3 sentences maximum).
+  // 4. If you cannot solve the user's query based on the client data, explain politely that you will connect them to a live agent.`;
 
-    const apiModel = this.mapModelName(config.model);
-    this.logger.log(
-      `Model we selected for the response generation stream: ${apiModel}`,
-    );
+  //     const apiModel = this.mapModelName(config.model);
+  //     this.logger.log(
+  //       `Model we selected for the response generation stream: ${apiModel}`,
+  //     );
 
-    const responseStream = await this.genAi.models.generateContentStream({
-      model: apiModel,
-      contents: query,
-      config: {
-        systemInstruction: finalSystemInstruction,
-      },
-    });
+  //     const responseStream = await this.genAi.models.generateContentStream({
+  //       model: apiModel,
+  //       contents: query,
+  //       config: {
+  //         systemInstruction: finalSystemInstruction,
+  //       },
+  //     });
 
-    return responseStream;
-  }
+  //     return responseStream;
+  //   }
 
-  public async geminiTextToSpeech(
-    text: string,
-    voice: string,
-  ): Promise<{ base64: string; mimeType: string }> {
-    this.logger.log(
-      `Now starting text to speech using Gemini model for: "${text}"`,
-    );
-    const response = await this.genAi.models.generateContent({
-      model: 'gemini-3.1-flash-tts-preview',
-      contents: text,
-      config: {
-        responseModalities: ['AUDIO'],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: voice },
-          },
-        },
-      },
-    });
+  // public async geminiTextToSpeech(
+  //   text: string,
+  //   voice: string,
+  // ): Promise<{ base64: string; mimeType: string }> {
+  //   this.logger.log(
+  //     `Now starting text to speech using Gemini model for: "${text}"`,
+  //   );
+  //   const response = await this.genAi.models.generateContent({
+  //     model: 'gemini-3.1-flash-tts-preview',
+  //     contents: text,
+  //     config: {
+  //       responseModalities: ['AUDIO'],
+  //       speechConfig: {
+  //         voiceConfig: {
+  //           prebuiltVoiceConfig: { voiceName: voice },
+  //         },
+  //       },
+  //     },
+  //   });
 
-    const parts = response.candidates?.[0]?.content?.parts || [];
-    let base64 = '';
-    let mimeType = 'audio/mp3';
-    for (const part of parts) {
-      if (part.inlineData && part.inlineData.data) {
-        base64 = part.inlineData.data;
-        mimeType = part.inlineData.mimeType || 'audio/mp3';
-        break;
-      }
-    }
+  //   const parts = response.candidates?.[0]?.content?.parts || [];
+  //   let base64 = '';
+  //   let mimeType = 'audio/mp3';
+  //   for (const part of parts) {
+  //     if (part.inlineData && part.inlineData.data) {
+  //       base64 = part.inlineData.data;
+  //       mimeType = part.inlineData.mimeType || 'audio/mp3';
+  //       break;
+  //     }
+  //   }
 
-    if (!base64) {
-      throw new Error('No audio data generated by Gemini TTS.');
-    }
-    this.logger.log('Text to speach generation done');
-    return { base64, mimeType };
-  }
+  //   if (!base64) {
+  //     throw new Error('No audio data generated by Gemini TTS.');
+  //   }
+  //   this.logger.log('Text to speach generation done');
+  //   return { base64, mimeType };
+  // }
 
   // chirp_3 voice
   public async textToSpeech(

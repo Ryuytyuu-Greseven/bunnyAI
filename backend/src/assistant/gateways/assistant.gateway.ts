@@ -18,16 +18,12 @@ export class AssistantGateway
     // 1. Create session state (config, queue, etc.)
     this.assistantService.initializeSession(client);
 
-    // 2. Start the audio driver — keyed by sessionId so it's independent of the WS socket object
     const sessionId = this.assistantService.getSessionId(client);
-    if (sessionId) {
-      await this.audioDriverService.startSession(sessionId, {
-        onTranscript: (text) => this.assistantService.onTranscriptReady(client, text),
-        onBargeIn: () => this.assistantService.handleBargeIn(client),
-      });
-    }
 
-    // 3. Route incoming WebSocket messages
+    // 2. Route incoming WebSocket messages.
+    //    Registered synchronously BEFORE awaiting startSession so the setup
+    //    frame (sent by the client immediately on open) can never be dropped
+    //    while the STT connection is still opening.
     client.on('message', async (data: any) => {
       try {
         const msg = JSON.parse(data.toString());
@@ -53,6 +49,16 @@ export class AssistantGateway
     client.on('error', (err: any) => {
       console.error('Client WebSocket error:', err);
     });
+
+    // 3. Start the audio driver — keyed by sessionId so it's independent of the WS socket object.
+    //    Awaited after listeners are attached; any audio frames that arrive before
+    //    the STT stream is ready are simply dropped by feedAudio (harmless).
+    if (sessionId) {
+      await this.audioDriverService.startSession(sessionId, {
+        onTranscript: (text) => this.assistantService.onTranscriptReady(client, text),
+        onBargeIn: () => this.assistantService.handleBargeIn(client),
+      });
+    }
   }
 
   handleDisconnect(client: any): void {
