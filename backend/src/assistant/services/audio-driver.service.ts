@@ -19,6 +19,7 @@ interface AudioSession {
   stream: any | null;
   silenceTimer: NodeJS.Timeout | null;
   speechDetectedByGoogle: boolean;
+  speechDetectedByDeepgram: boolean;
   callbacks: AudioDriverCallbacks;
   encoding: 'LINEAR16' | 'MULAW';
   sampleRateHertz: number;
@@ -80,6 +81,7 @@ export class AudioDriverService {
       stream: null,
       silenceTimer: null,
       speechDetectedByGoogle: false,
+      speechDetectedByDeepgram: false,
       callbacks,
       encoding: audioConfig?.encoding ?? 'LINEAR16',
       sampleRateHertz: audioConfig?.sampleRateHertz ?? 16000,
